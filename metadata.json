@@ -1,0 +1,9 @@
+{
+  "name": "Analy",
+  "description": "Asistente táctico de empoderamiento lingüístico. Traduce, suaviza y enseña inglés contextual en tiempo real para cualquier situación profesional o social.",
+  "requestFramePermissions": [
+    "camera",
+    "microphone"
+  ],
+  "majorCapabilities": []
+}

@@ -1,0 +1,104 @@
+@import "tailwindcss";
+
+@theme {
+  --font-sans: "Inter", ui-sans-serif, system-ui, sans-serif;
+  --font-mono: "JetBrains Mono", ui-monospace, SFMono-Regular, monospace;
+
+  /* Analy: Empathetic Mentor Aesthetic */
+  --bg-analy: #F1F5F9; /* Slate 100 */
+  --bg-analy-light: #FFFFFF;
+  --accent-analy: #3B82F6; /* Serenity Blue */
+  --accent-analy-success: #10B981; /* Hope Green */
+  --text-analy-primary: #1E293B; /* Slate 800 */
+  --text-analy-secondary: #64748B; /* Slate 500 */
+}
+
+@layer base {
+  body {
+    background-color: var(--bg-analy);
+    color: var(--text-analy-primary);
+    font-family: var(--font-sans);
+  }
+}
+
+.analy-card {
+  background-color: var(--bg-analy-light);
+  border: 1px solid rgba(0, 0, 0, 0.04);
+  border-radius: 24px; /* Organic roundness */
+  box-shadow: 0 10px 40px -10px rgba(59, 130, 246, 0.08); /* Serenity blue soft shadow */
+}
+
+.analy-button {
+  background-color: var(--bg-analy-light);
+  border: 1px solid rgba(0, 0, 0, 0.04);
+  transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+  border-radius: 20px;
+}
+
+.analy-button:active {
+  background-color: #F8FAFC;
+  transform: scale(0.97);
+}
+
+.accent-glow {
+  box-shadow: 0 0 20px rgba(59, 130, 246, 0.15);
+}
+
+.mono-display {
+  font-family: var(--font-mono);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+/* Custom indicator for active tabs */
+.active-indicator {
+  position: relative;
+}
+.active-indicator::after {
+  content: '';
+  position: absolute;
+  bottom: -4px;
+  left: 25%;
+  right: 25%;
+  height: 4px; /* Thicker, friendlier line */
+  background-color: var(--accent-analy);
+  border-radius: 4px;
+  box-shadow: 0 2px 8px rgba(59, 130, 246, 0.4);
+}
+
+/* Master Panel High-Density Tables */
+table {
+  border-spacing: 0;
+}
+
+th, td {
+  border-bottom: 1px solid rgba(0, 0, 0, 0.05);
+}
+
+tr:last-child td {
+  border-bottom: none;
+}
+
+.custom-scrollbar::-webkit-scrollbar {
+  width: 6px; /* Slightly wider */
+}
+
+.custom-scrollbar::-webkit-scrollbar-track {
+  background: rgba(0, 0, 0, 0.02);
+}
+
+.custom-scrollbar::-webkit-scrollbar-thumb {
+  background: rgba(59, 130, 246, 0.3);
+  border-radius: 10px;
+}
+
+@keyframes pulse-blue {
+  0% { box-shadow: 0 0 0 0 rgba(59, 130, 246, 0.2); border-color: rgba(59, 130, 246, 0.3); }
+  70% { box-shadow: 0 0 0 10px rgba(59, 130, 246, 0); border-color: rgba(59, 130, 246, 0.8); }
+  100% { box-shadow: 0 0 0 0 rgba(59, 130, 246, 0); border-color: rgba(59, 130, 246, 0.3); }
+}
+
+.listening-pulse {
+  animation: pulse-blue 1.5s infinite;
+  border-color: #3B82F6 !important;
+}
