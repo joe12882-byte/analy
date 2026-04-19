@@ -4,6 +4,7 @@ import { LayoutDashboard, Camera, ShieldCheck, Settings, Library, Loader2 } from
 import { clsx, type ClassValue } from 'clsx';
 import { twMerge } from 'tailwind-merge';
 import Onboarding from '../Onboarding';
+import { useAuth } from '../AuthProvider';
 import { UserProfile } from '../../types';
 
 function cn(...inputs: ClassValue[]) {
@@ -13,34 +14,40 @@ function cn(...inputs: ClassValue[]) {
 const ADMIN_EMAIL = 'joe12882@gmail.com';
 
 export default function Layout() {
-  const [profile, setProfile] = useState<UserProfile | null>(null);
-  const [loading, setLoading] = useState(true);
+  const { profile, loading, user } = useAuth();
+  const [internalProfile, setInternalProfile] = useState<UserProfile | null>(null);
   const [systemMessage, setSystemMessage] = useState<string | null>(null);
 
   useEffect(() => {
-    const saved = localStorage.getItem('analy_user_profile');
-    if (saved) {
-      const parsed = JSON.parse(saved);
-      setProfile(parsed);
+    if(profile) {
+      setInternalProfile(profile);
     }
-    setLoading(false);
-  }, []);
-
-  const handleOnboardingComplete = (newProfile: UserProfile) => {
-    setSystemMessage(`Bienvenido, ${newProfile.name}. Configurando Analy para ${newProfile.occupation}...`);
+  }, [profile]);
+  
+  const handleOnboardingComplete = (completedProfile: UserProfile) => {
+    setSystemMessage(`Bienvenido, ${completedProfile.displayName || completedProfile.email}. Configurando Analy para ${completedProfile.occupation}...`);
     setTimeout(() => {
-      setProfile(newProfile);
+      setInternalProfile(completedProfile);
       setSystemMessage(null);
     }, 2500);
   };
 
-  const isAdmin = profile?.role === 'master' || profile?.email === ADMIN_EMAIL;
+  const isAdmin = internalProfile?.role === 'master' || internalProfile?.email === ADMIN_EMAIL;
 
-  if (loading) return null;
+  if (loading) {
+     return (
+        <div className="min-h-screen bg-slate-100 flex items-center justify-center">
+            <Loader2 className="animate-spin text-blue-500 w-10 h-10" />
+        </div>
+     );
+  }
+
+  // If user is not signed in or we don't have a profile yet (or they haven't finished the Onboarding workflow locally)
+  const showOnboarding = !user || !internalProfile?.onboarded;
 
   return (
     <div className="min-h-screen bg-slate-100 text-slate-800 flex flex-col pb-20">
-      {(!profile || !profile.onboarded) && (
+      {showOnboarding && (
         <Onboarding onComplete={handleOnboardingComplete} />
       )}
 
@@ -62,7 +69,7 @@ export default function Layout() {
         </div>
         <div className="flex items-center gap-3 bg-slate-50 px-3 py-1.5 rounded-full border border-slate-100">
           <span className="text-[10px] uppercase font-bold text-slate-500 tracking-wide">
-            {profile?.occupation || 'Tu Tutor'}
+            {internalProfile?.occupation || 'Tu Tutor'}
           </span>
           <div className="w-2 h-2 rounded-full bg-emerald-400 shadow-[0_0_8px_rgba(52,211,153,0.4)] animate-pulse" />
         </div>

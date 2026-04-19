@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { Youtube, Search, ArrowRight, Loader2, Save, Trash2, Database, Users, Shield, Calendar, Link2, Sparkles, Server } from 'lucide-react';
 import { extractFromYouTube } from '../lib/gemini';
-import { CurationEntry, UserProfile, Script } from '../types';
+import { CurationEntry, UserProfile, LearningUnit } from '../types';
 import AdminVault from './AdminVault';
 
 export default function AdminCurador() {
@@ -41,14 +41,16 @@ export default function AdminCurador() {
   const saveToGlobalStore = (item: any) => {
     // Save to the universal scripts collection (simulated global DB)
     const existingScripts = JSON.parse(localStorage.getItem('analy_universal_scripts') || '[]');
-    const newScript: Script = {
+    const newScript: LearningUnit = {
       id: crypto.randomUUID(),
+      profession_id: 'general', // You could detect this or ask the admin
       category: item.category || 'professional',
-      title: item.spanish.substring(0, 40),
-      spanish: item.spanish,
-      english: item.english,
-      pronunciation: item.pronunciation,
-      context: item.significado
+      phrase_es: item.phrase_es || item.spanish,
+      phrase_en: item.phrase_en || item.english,
+      phonetic_tactic: item.phonetic_tactic || item.pronunciation,
+      learning_tips: item.learning_tips || [item.significado],
+      grammar_tag: item.grammar_tag || 'Intel Reciente',
+      difficulty: item.difficulty || 3
     };
 
     localStorage.setItem('analy_universal_scripts', JSON.stringify([newScript, ...existingScripts]));
@@ -56,9 +58,9 @@ export default function AdminCurador() {
     // Also save to curation history for the master
     const newEntry: CurationEntry = {
       id: crypto.randomUUID(),
-      topic: item.english.substring(0, 30),
-      content: item.significado,
-      category: item.category,
+      topic: newScript.phrase_en.substring(0, 30),
+      content: newScript.phrase_es,
+      category: newScript.category,
       sourceType: 'video'
     };
     const updatedIntel = [newEntry, ...savedEntries];
@@ -194,15 +196,17 @@ export default function AdminCurador() {
                     <div className="grid gap-3">
                       <div>
                         <div className="text-[9px] text-gray-500 uppercase font-black mb-1">Lección/Original</div>
-                        <p className="text-white font-medium text-sm">{item.spanish}</p>
+                        <p className="text-white font-medium text-sm">{item.phrase_es}</p>
                       </div>
                       <div>
                         <div className="text-[9px] text-[#00F0FF] uppercase font-black mb-1">Softening Analy</div>
-                        <p className="text-[#00F0FF] font-black text-base">{item.english}</p>
+                        <p className="text-[#00F0FF] font-black text-base">{item.phrase_en}</p>
                       </div>
                       <div>
-                        <div className="text-[9px] text-gray-500 uppercase font-black mb-1">Significado</div>
-                        <p className="text-gray-400 text-xs italic">{item.significado}</p>
+                        <div className="text-[9px] text-gray-500 uppercase font-black mb-1">Tips Pedagógicos</div>
+                        {item.learning_tips?.map((tip: string, idx: number) => (
+                           <p key={idx} className="text-gray-400 text-xs italic">- {tip}</p>
+                        ))}
                       </div>
                     </div>
                     <div className="absolute bottom-0 left-0 h-1 bg-[#00F0FF]/20 w-0 group-hover:w-full transition-all duration-500" />

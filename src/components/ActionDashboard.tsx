@@ -1,9 +1,12 @@
 import React, { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
-import { Volume2, ChevronRight, Search, Mic, Zap, Shield, Heart, Loader2, Sparkles, X, Save, Info, ArrowRight } from 'lucide-react';
-import { UserProfile } from '../types';
+import { Volume2, ChevronRight, Search, Mic, Zap, Shield, Heart, Loader2, Sparkles, X, Save, Info, ArrowRight, Database } from 'lucide-react';
+import { UserProfile, LearningUnit } from '../types';
 import { softenPhrase } from '../lib/gemini';
-import { GUIONES, GuionItem } from '../data/guiones';
+import { LEARNING_UNITS as LOCAL_LEARNING_UNITS } from '../data/guiones';
+import { collection, getDocs, setDoc, doc } from 'firebase/firestore';
+import { db, auth } from '../lib/firebase';
+import { useAuth } from './AuthProvider';
 
 // ... (scripts eliminados)
 
@@ -15,16 +18,68 @@ export default function ActionDashboard() {
   const [interimTranscript, setInterimTranscript] = useState('');
   const [isProcessing, setIsProcessing] = useState(false);
   const [softenedResult, setSoftenedResult] = useState<any>(null);
-  const [userProfile, setUserProfile] = useState<UserProfile | null>(null);
+  
+  const { user, profile: userProfile } = useAuth();
+  
+  const [learningUnits, setLearningUnits] = useState<LearningUnit[]>([]);
+  const [dbStatus, setDbStatus] = useState<'loading' | 'migrating' | 'ready'>('loading');
 
   useEffect(() => {
-    const saved = localStorage.getItem('analy_user_profile');
-    if (saved) setUserProfile(JSON.parse(saved));
-  }, []);
+    const fetchUnits = async () => {
+      // Need Firebase Auth session established
+      if (!user) return;
+      try {
+        const colRef = collection(db, 'learning_units');
+        const snapshot = await getDocs(colRef);
+        
+        if (snapshot.empty) {
+// ...
+             // Base de datos vacía - Proceso de auto-siembra para administradores
+           if (userProfile?.role === 'master' || user.email === 'joe12882@gmail.com') { // <-- The auto seed condition
+             setDbStatus('migrating');
+             
+             // 1. Crear profesión inicial explícitamente primero porque las reglas lo dictan "exists(...)".
+             await setDoc(doc(db, 'professions', 'barber'), { 
+                name: 'Barbería Profesional', 
+                icon: 'Scissors' 
+             });
+             
+             // 2. Insertar los Guiones de Oro
+             for (const unit of LOCAL_LEARNING_UNITS) {
+               const { id, ...dataToSave } = unit; 
+               if (id) {
+                 await setDoc(doc(db, 'learning_units', id), dataToSave);
+               }
+             }
 
-  const filteredScripts = GUIONES.filter(s => 
+             // 3. Obtener de nuevo tras migración
+             const newSnap = await getDocs(colRef);
+             const imported = newSnap.docs.map(d => ({ id: d.id, ...d.data() } as LearningUnit));
+             setLearningUnits(imported);
+             setDbStatus('ready');
+           } else {
+             // Es un usuario normal pero la DB está vacía
+             setLearningUnits([]);
+             setDbStatus('ready');
+           }
+        } else {
+          // Poblado normal de Firebase
+          const data = snapshot.docs.map(d => ({ id: d.id, ...d.data() } as LearningUnit));
+          setLearningUnits(data);
+          setDbStatus('ready');
+        }
+      } catch (err) {
+        console.error("Error al cargar learning_units:", err);
+        setDbStatus('ready');
+      }
+    };
+    
+    fetchUnits();
+  }, [user, userProfile]);
+
+  const filteredScripts = learningUnits.filter(s => 
     s.category === activeTab && 
-    (s.title.toLowerCase().includes(searchQuery.toLowerCase()) || s.spanish.toLowerCase().includes(searchQuery.toLowerCase()))
+    (s.phrase_en.toLowerCase().includes(searchQuery.toLowerCase()) || s.phrase_es.toLowerCase().includes(searchQuery.toLowerCase()))
   );
 
   const handleSaveToLibrary = () => {
@@ -80,9 +135,8 @@ export default function ActionDashboard() {
     };
 
     recognition.onerror = (event: any) => {
-      if (event.error === 'no-speech') {
-        // Ignorar el error de "no-speech", es normal cuando hay silencio prolongado
-        // No imprimimos el error para no colapsar la consola de ruido.
+      if (event.error === 'no-speech' || event.error === 'aborted') {
+        // Ignorar el error de "no-speech" o "aborted" (generado al hacer .stop() intencional)
         return; 
       }
       console.error("Speech Recognition Error:", event.error);
@@ -288,9 +342,9 @@ export default function ActionDashboard() {
 
   const handleSearch = async (e: React.KeyboardEvent) => {
     if (e.key === 'Enter' && searchQuery) {
-      const exists = GUIONES.some(s => 
-        s.spanish.toLowerCase().includes(searchQuery.toLowerCase()) || 
-        s.title.toLowerCase().includes(searchQuery.toLowerCase())
+      const exists = learningUnits.some(s => 
+        s.phrase_es.toLowerCase().includes(searchQuery.toLowerCase()) || 
+        s.phrase_en.toLowerCase().includes(searchQuery.toLowerCase())
       );
       
       if (!exists) {
@@ -470,29 +524,46 @@ export default function ActionDashboard() {
             Resultados: {tabLabels[activeTab]}
           </h2>
           <span className="text-[10px] font-bold text-blue-500 bg-blue-50 px-2 py-0.5 rounded-full">
-            {filteredScripts.length} Unidades
+            {dbStatus === 'loading' || dbStatus === 'migrating' ? '...' : filteredScripts.length} Unidades
           </span>
         </div>
 
         <AnimatePresence mode="wait">
-          <motion.div
-            key={activeTab}
-            initial={{ opacity: 0, scale: 0.98 }}
-            animate={{ opacity: 1, scale: 1 }}
-            exit={{ opacity: 0, scale: 1.02 }}
-            className="space-y-3"
-          >
-            {filteredScripts.length > 0 ? (
-              filteredScripts.map((script) => (
-                <ScriptCard key={script.id} script={script} onSpeak={speak} />
-              ))
-            ) : (
-              <div className="py-20 text-center space-y-2 opacity-10">
-                <Search className="mx-auto" size={48} strokeWidth={1} />
-                <p className="text-[10px] uppercase font-black tracking-widest">Sin Coincidencias Tácticas</p>
-              </div>
-            )}
-          </motion.div>
+          {dbStatus === 'loading' || dbStatus === 'migrating' ? (
+            <motion.div
+              key="loading"
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              className="py-20 flex flex-col items-center justify-center text-center space-y-4 opacity-50"
+            >
+              <Database className="animate-pulse text-blue-500" size={48} strokeWidth={1} />
+              <p className="text-[10px] uppercase font-black text-blue-600 tracking-widest">
+                {dbStatus === 'migrating' 
+                  ? 'Migrando base de datos a Firebase...' 
+                  : 'Sincronizando con Servidor...'}
+              </p>
+            </motion.div>
+          ) : (
+            <motion.div
+              key={activeTab}
+              initial={{ opacity: 0, scale: 0.98 }}
+              animate={{ opacity: 1, scale: 1 }}
+              exit={{ opacity: 0, scale: 1.02 }}
+              className="space-y-3"
+            >
+              {filteredScripts.length > 0 ? (
+                filteredScripts.map((script) => (
+                  <ScriptCard key={script.id} script={script} onSpeak={speak} />
+                ))
+              ) : (
+                <div className="py-20 text-center space-y-2 opacity-10">
+                  <Search className="mx-auto" size={48} strokeWidth={1} />
+                  <p className="text-[10px] uppercase font-black tracking-widest">Sin Coincidencias Tácticas</p>
+                </div>
+              )}
+            </motion.div>
+          )}
         </AnimatePresence>
       </div>
 
@@ -566,7 +637,7 @@ export default function ActionDashboard() {
   );
 }
 
-function ScriptCard({ script, onSpeak }: { script: GuionItem; onSpeak: (text: string) => void; key?: React.Key }) {
+function ScriptCard({ script, onSpeak }: { script: LearningUnit; onSpeak: (text: string) => void; key?: React.Key }) {
   const [isExpanded, setIsExpanded] = useState(false);
 
   return (
@@ -579,10 +650,10 @@ function ScriptCard({ script, onSpeak }: { script: GuionItem; onSpeak: (text: st
           <div className="flex items-center gap-2">
             <div className="w-1.5 h-1.5 bg-blue-400 rounded-full" />
             <h3 className="text-slate-400 text-[10px] uppercase font-bold tracking-wide leading-none flex items-center gap-2">
-              {script.title}
+              {script.grammar_tag} • Dificultad {script.difficulty}/5
             </h3>
           </div>
-          <p className="font-bold text-slate-700 text-[15px] tracking-tight">{script.spanish}</p>
+          <p className="font-bold text-slate-700 text-[15px] tracking-tight">{script.phrase_es}</p>
         </div>
         <div className={cn(
           "w-8 h-8 rounded-full border flex items-center justify-center transition-all",
@@ -607,34 +678,34 @@ function ScriptCard({ script, onSpeak }: { script: GuionItem; onSpeak: (text: st
               <div className="bg-[#0A0A0A] border border-white/5 p-4 rounded-xl flex items-start justify-between relative group">
                 <div className="space-y-2">
                    <div className="text-[#00F0FF] font-black text-lg leading-tight selection:bg-[#00F0FF] selection:text-[#0F0F0F]">
-                    {script.english}
+                    {script.phrase_en}
                   </div>
                   <div className="text-gray-500 text-[11px] mono-display flex items-center gap-2 italic">
                     <Volume2 size={12} className="text-[#00F0FF]" />
-                    {script.pronunciation}
+                    {script.phonetic_tactic}
                   </div>
                 </div>
                 <button 
-                  onClick={(e) => { e.stopPropagation(); onSpeak(script.english); }}
+                  onClick={(e) => { e.stopPropagation(); onSpeak(script.phrase_en); }}
                   className="w-10 h-10 bg-white/5 rounded-full flex items-center justify-center text-gray-400 hover:text-[#00F0FF] hover:bg-[#00F0FF]/10 transition-all active:scale-90"
                 >
                   <Volume2 size={18} />
                 </button>
               </div>
               
-              {script.note && (
-                <div className="bg-orange-500/10 border border-orange-500/20 rounded-lg p-3 flex items-start gap-2">
-                  <Info size={14} className="text-orange-400 mt-0.5 shrink-0" />
-                  <p className="text-[11px] text-orange-200/90 leading-relaxed font-medium">
-                    {script.note}
-                  </p>
+              {script.learning_tips && script.learning_tips.length > 0 && (
+                <div className="bg-orange-500/10 border border-orange-500/20 rounded-lg p-3 flex flex-col gap-2">
+                  <div className="flex items-center gap-1.5 mb-1 text-orange-600 font-bold uppercase tracking-wider text-[10px]">
+                    <Sparkles size={12} />
+                    <span>Learning Tips (Analy)</span>
+                  </div>
+                  <ul className="text-[11px] text-orange-900 leading-relaxed font-medium list-disc list-inside space-y-1">
+                    {script.learning_tips.map((tip, idx) => (
+                      <li key={idx}>{tip}</li>
+                    ))}
+                  </ul>
                 </div>
               )}
-
-              <div className="flex items-center gap-2 text-[9px] font-bold text-gray-600 uppercase tracking-widest">
-                <span className="bg-white/5 px-2 py-1 rounded">Contexto:</span>
-                <span>{script.context}</span>
-              </div>
             </div>
           </motion.div>
         )}

@@ -10,22 +10,6 @@ import { UserProfile } from './types';
 const ADMIN_EMAIL = 'joe12882@gmail.com';
 
 function SettingsMock() {
-  const [customApiKey, setCustomApiKey] = useState('');
-  
-  useEffect(() => {
-    const savedKey = localStorage.getItem('analy_custom_gemini_key');
-    if (savedKey) setCustomApiKey(savedKey);
-  }, []);
-
-  const handleKeySave = (val: string) => {
-    setCustomApiKey(val);
-    if (val.trim()) {
-      localStorage.setItem('analy_custom_gemini_key', val.trim());
-    } else {
-      localStorage.removeItem('analy_custom_gemini_key');
-    }
-  };
-
   return (
     <div className="p-6 space-y-4">
       <div className="space-y-1 mb-8">
@@ -34,24 +18,14 @@ function SettingsMock() {
       </div>
 
       <div className="space-y-6">
-        <div className="analy-card p-5 space-y-3 bg-[#0F0F0F] border border-[#00F0FF]/20">
+        <div className="analy-card p-5 space-y-3 bg-[#0F0F0F] border border-green-500/20">
           <div className="flex items-center justify-between">
-            <span className="text-[10px] font-black uppercase tracking-widest text-[#00F0FF]">Bóveda API (Privada)</span>
-            <span className="text-[8px] bg-white/5 px-2 py-0.5 rounded text-gray-400 font-mono">CLIENT-SIDE</span>
+            <span className="text-[10px] font-black uppercase tracking-widest text-green-400">Vertex AI Secure Link</span>
+            <span className="text-[8px] bg-green-500/10 px-2 py-0.5 rounded text-green-400 font-mono">IAM AUTH</span>
           </div>
           <p className="text-[10px] text-gray-500 font-mono leading-relaxed">
-            Ingresa tu Google Cloud API Key para evadir las cuotas gratuitas del entorno AI Studio. Se guarda de forma encriptada en el almacenamiento de tu navegador local.
+            La conexión con Google Cloud Vertex AI está asegurada y manejada automáticamente a nivel de Firebase por IAM. No se requieren manual API Keys.
           </p>
-          <input 
-            type="password"
-            placeholder="Pegar API Key aquí (ej. AIzaSy...)"
-            value={customApiKey}
-            onChange={(e) => handleKeySave(e.target.value)}
-            className="w-full bg-[#1A1A1A] border border-white/10 rounded-xl py-3 px-4 text-xs font-mono focus:border-[#00F0FF] outline-none text-white"
-          />
-          {customApiKey && (
-            <p className="text-[9px] text-[#00F0FF] font-black uppercase tracking-widest mt-2 flex justify-end">✓ Llave Activa</p>
-          )}
         </div>
 
         <div className="space-y-4">

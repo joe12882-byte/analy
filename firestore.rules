@@ -1,0 +1,158 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // 0. Global Safety Net
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    // Primitive Helpers
+    function isValidId(id) { 
+      return id is string && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$'); 
+    }
+    function incoming() { return request.resource.data; }
+    function existing() { return resource.data; }
+    function isSignedIn() { return request.auth != null; }
+    function isVerified() { return isSignedIn() && request.auth.token.email_verified == true; }
+    
+    // Admins are defined by role in db OR by specific email for bootstrapping
+    function isAdmin() { 
+      return isVerified() && (request.auth.token.email == 'joe12882@gmail.com' || 
+             (exists(/databases/$(database)/documents/users/$(request.auth.uid)) && 
+              get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'master'));
+    }
+
+    // PROFESSIONS
+    function isValidProfession(data) {
+      return data.keys().hasAll(['name', 'icon']) &&
+             data.name is string && data.name.size() <= 100 &&
+             data.icon is string && data.icon.size() <= 100;
+    }
+    match /professions/{professionId} {
+      allow get, list: if isSignedIn();
+      allow create: if isAdmin() && isValidId(professionId) && isValidProfession(incoming()) && incoming().keys().size() == 2;
+      allow update: if isAdmin() && isValidProfession(incoming()) && incoming().diff(existing()).affectedKeys().hasOnly(['name', 'icon']);
+      allow delete: if isAdmin();
+    }
+
+    // LEARNING UNITS
+    function isValidLearningUnit(data) {
+      return data.keys().hasAll(['profession_id', 'category', 'phrase_en', 'phrase_es', 'phonetic_tactic', 'learning_tips', 'grammar_tag', 'difficulty']) &&
+             data.profession_id is string && data.profession_id.size() <= 128 &&
+             data.category is string && data.category in ['professional', 'survival', 'social'] &&
+             data.phrase_en is string && data.phrase_en.size() <= 500 &&
+             data.phrase_es is string && data.phrase_es.size() <= 500 &&
+             data.phonetic_tactic is string && data.phonetic_tactic.size() <= 500 &&
+             data.learning_tips is list && data.learning_tips.size() <= 10 &&
+             (data.learning_tips.size() == 0 || data.learning_tips[0] is string) &&
+             data.grammar_tag is string && data.grammar_tag.size() <= 100 &&
+             data.difficulty is number && data.difficulty >= 1 && data.difficulty <= 5;
+    }
+    match /learning_units/{unitId} {
+      allow get, list: if isSignedIn();
+      allow create: if isAdmin() && isValidId(unitId) && isValidLearningUnit(incoming()) && incoming().keys().size() == 8 && exists(/databases/$(database)/documents/professions/$(incoming().profession_id));
+      allow update: if isAdmin() && isValidLearningUnit(incoming()) && incoming().diff(existing()).affectedKeys().hasOnly(['category', 'phrase_en', 'phrase_es', 'phonetic_tactic', 'learning_tips', 'grammar_tag', 'difficulty']);
+      allow delete: if isAdmin();
+    }
+
+    // INTEL SPONGE
+    function isValidIntelSponge(data) {
+      return data.keys().hasAll(['source_url', 'ai_pedagogy', 'suggested_tips', 'status', 'createdAt']) &&
+             data.source_url is string && data.source_url.size() <= 500 &&
+             data.ai_pedagogy is string && data.ai_pedagogy.size() <= 5000 &&
+             data.suggested_tips is list && data.suggested_tips.size() <= 20 &&
+             (data.suggested_tips.size() == 0 || data.suggested_tips[0] is string) &&
+             data.status is string && data.status in ['pending', 'approved'] &&
+             data.createdAt is timestamp;
+    }
+    match /intel_sponge/{intelId} {
+      allow get, list: if isAdmin(); // Solo Master/Admin ve el panel principal de curaduría
+      allow create: if isAdmin() && isValidId(intelId) && isValidIntelSponge(incoming()) && incoming().keys().size() == 5 && incoming().createdAt == request.time;
+      allow update: if isAdmin() && isValidIntelSponge(incoming()) && incoming().diff(existing()).affectedKeys().hasOnly(['source_url', 'ai_pedagogy', 'suggested_tips', 'status']);
+      allow delete: if isAdmin();
+    }
+
+    // User Validator
+    function isValidUser(data) {
+      return data.keys().hasAll(['email', 'role', 'createdAt']) && 
+             data.email is string && data.email.size() <= 200 &&
+             data.role is string && data.role in ['user', 'master'] &&
+             (!('displayName' in data) || (data.displayName is string && data.displayName.size() <= 100)) &&
+             (!('photoURL' in data) || (data.photoURL is string && data.photoURL.size() <= 1000)) &&
+             (!('occupation' in data) || (data.occupation is string && data.occupation.size() <= 100)) &&
+             (!('onboarded' in data) || data.onboarded is bool) &&
+             (!('analyCalibrated' in data) || data.analyCalibrated is bool) &&
+             (!('updatedAt' in data) || data.updatedAt is timestamp);
+    }
+
+    match /users/{userId} {
+      allow get: if isSignedIn() && (request.auth.uid == userId || isAdmin());
+      allow list: if isAdmin();
+      
+      allow create: if isVerified() && request.auth.uid == userId && isValidId(userId) &&
+        isValidUser(incoming()) && incoming().keys().size() <= 9 &&
+        incoming().createdAt == request.time &&
+        incoming().email == request.auth.token.email &&
+        incoming().role == 'user'; // Prevent auto-assigning master
+
+      allow update: if isVerified() && request.auth.uid == userId && 
+        isValidUser(incoming()) && (
+          isAdmin() || 
+          (incoming().diff(existing()).affectedKeys().hasOnly(['displayName', 'photoURL', 'occupation', 'onboarded', 'analyCalibrated', 'updatedAt']) &&
+           incoming().updatedAt == request.time)
+        );
+        
+      allow delete: if isAdmin();
+    }
+
+    // ChatSession Validator
+    function isValidSession(data) {
+      return data.keys().hasAll(['userId', 'createdAt']) &&
+             data.userId is string && data.userId.size() <= 128 &&
+             (!('title' in data) || (data.title is string && data.title.size() <= 200)) &&
+             (!('updatedAt' in data) || data.updatedAt is timestamp);
+    }
+
+    match /sessions/{sessionId} {
+      allow get: if isSignedIn() && (existing().userId == request.auth.uid || isAdmin());
+      allow list: if isSignedIn() && resource.data.userId == request.auth.uid;
+      
+      allow create: if isVerified() && isValidId(sessionId) &&
+        isValidSession(incoming()) && incoming().keys().size() <= 4 &&
+        incoming().createdAt == request.time &&
+        incoming().userId == request.auth.uid &&
+        exists(/databases/$(database)/documents/users/$(request.auth.uid));
+
+      allow update: if isVerified() && existing().userId == request.auth.uid &&
+        isValidSession(incoming()) && (
+          incoming().diff(existing()).affectedKeys().hasOnly(['title', 'updatedAt']) &&
+          incoming().updatedAt == request.time
+        );
+        
+      allow delete: if isVerified() && (existing().userId == request.auth.uid || isAdmin());
+
+      // ChatMessage Validator
+      function isValidMessage(data) {
+        return data.keys().hasAll(['sessionId', 'role', 'content', 'createdAt']) &&
+               data.sessionId is string && data.sessionId.size() <= 128 &&
+               data.role is string && data.role in ['user', 'model', 'system'] &&
+               data.content is string && data.content.size() <= 10000 &&
+               data.createdAt is timestamp;
+      }
+
+      match /messages/{messageId} {
+        allow get: if isSignedIn() && (get(/databases/$(database)/documents/sessions/$(sessionId)).data.userId == request.auth.uid || isAdmin());
+        allow list: if isSignedIn() && get(/databases/$(database)/documents/sessions/$(sessionId)).data.userId == request.auth.uid;
+        
+        allow create: if isVerified() && isValidId(messageId) &&
+          isValidMessage(incoming()) && incoming().keys().size() == 4 &&
+          incoming().createdAt == request.time &&
+          incoming().sessionId == sessionId &&
+          get(/databases/$(database)/documents/sessions/$(sessionId)).data.userId == request.auth.uid;
+
+        allow update: if false; // Messages are immutable
+        allow delete: if isAdmin();
+      }
+    }
+  }
+}

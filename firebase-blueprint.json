@@ -1,0 +1,110 @@
+{
+  "entities": {
+    "Profession": {
+      "title": "Profession",
+      "description": "Information about a specific profession context",
+      "type": "object",
+      "properties": {
+        "name": { "type": "string" },
+        "icon": { "type": "string" }
+      },
+      "required": ["name", "icon"]
+    },
+    "LearningUnit": {
+      "title": "LearningUnit",
+      "description": "Educational phrase or tactic",
+      "type": "object",
+      "properties": {
+        "profession_id": { "type": "string" },
+        "category": { "type": "string", "enum": ["professional", "survival", "social"] },
+        "phrase_en": { "type": "string" },
+        "phrase_es": { "type": "string" },
+        "phonetic_tactic": { "type": "string" },
+        "learning_tips": { "type": "array", "items": { "type": "string" } },
+        "grammar_tag": { "type": "string" },
+        "difficulty": { "type": "number" }
+      },
+      "required": ["profession_id", "category", "phrase_en", "phrase_es", "phonetic_tactic", "learning_tips", "grammar_tag", "difficulty"]
+    },
+    "IntelSponge": {
+      "title": "IntelSponge",
+      "description": "Data extracted from external sources",
+      "type": "object",
+      "properties": {
+        "source_url": { "type": "string" },
+        "ai_pedagogy": { "type": "string" },
+        "suggested_tips": { "type": "array", "items": { "type": "string" } },
+        "status": { "type": "string", "enum": ["pending", "approved"] },
+        "createdAt": { "type": "string", "format": "timestamp" }
+      },
+      "required": ["source_url", "ai_pedagogy", "suggested_tips", "status", "createdAt"]
+    },
+    "User": {
+      "title": "User",
+      "description": "User profile data",
+      "type": "object",
+      "properties": {
+        "email": { "type": "string" },
+        "displayName": { "type": "string" },
+        "photoURL": { "type": "string" },
+        "occupation": { "type": "string" },
+        "onboarded": { "type": "boolean" },
+        "analyCalibrated": { "type": "boolean" },
+        "role": { "type": "string", "enum": ["user", "master"] },
+        "createdAt": { "type": "string", "format": "timestamp" },
+        "updatedAt": { "type": "string", "format": "timestamp" }
+      },
+      "required": ["email", "role", "createdAt"]
+    },
+    "ChatSession": {
+      "title": "ChatSession",
+      "description": "A conversation session",
+      "type": "object",
+      "properties": {
+        "userId": { "type": "string" },
+        "title": { "type": "string" },
+        "createdAt": { "type": "string", "format": "timestamp" },
+        "updatedAt": { "type": "string", "format": "timestamp" }
+      },
+      "required": ["userId", "createdAt"]
+    },
+    "ChatMessage": {
+      "title": "ChatMessage",
+      "description": "A message within a chat session",
+      "type": "object",
+      "properties": {
+        "sessionId": { "type": "string" },
+        "role": { "type": "string", "enum": ["user", "model", "system"] },
+        "content": { "type": "string" },
+        "createdAt": { "type": "string", "format": "timestamp" }
+      },
+      "required": ["sessionId", "role", "content", "createdAt"]
+    }
+  },
+  "firestore": {
+    "/professions/{professionId}": {
+      "schema": { "$ref": "#/entities/Profession" },
+      "description": "Available professions for context"
+    },
+    "/learning_units/{unitId}": {
+      "schema": { "$ref": "#/entities/LearningUnit" },
+      "description": "Educational units containing English lessons"
+    },
+    "/intel_sponge/{intelId}": {
+      "schema": { "$ref": "#/entities/IntelSponge" },
+      "description": "Extracted intelligence from sources"
+    },
+    "/users/{userId}": {
+      "schema": { "$ref": "#/entities/User" },
+      "description": "User profiles"
+    },
+    "/sessions/{sessionId}": {
+      "schema": { "$ref": "#/entities/ChatSession" },
+      "description": "Chat sessions owned by users"
+    },
+    "/sessions/{sessionId}/messages/{messageId}": {
+      "schema": { "$ref": "#/entities/ChatMessage" },
+      "description": "Messages inside a session"
+    }
+  }
+}

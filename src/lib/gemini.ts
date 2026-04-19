@@ -1,14 +1,6 @@
-import { GoogleGenAI, Type, HarmCategory, HarmBlockThreshold } from "@google/genai";
-import { GUIONES } from "../data/guiones";
-
-// Dynamic get of AI Client to support Custom API keys via local storage
-const getAIClient = () => {
-  const customKey = typeof window !== 'undefined' ? localStorage.getItem('analy_custom_gemini_key') : null;
-  // USER'S HARDCODED API KEY (as requested)
-  const FALLBACK_KEY = 'AIzaSyDoPwXlJIViHJBQa1W7wwF_IHaye_LmNG8';
-  const apiKey = customKey || process.env.GEMINI_API_KEY || FALLBACK_KEY;
-  return new GoogleGenAI({ apiKey });
-};
+import { getGenerativeModel, SchemaType, HarmCategory, HarmBlockThreshold } from "firebase/ai";
+import { collection, getDocs } from 'firebase/firestore';
+import { db, vertexAI } from './firebase';
 
 const withTimeout = <T>(promise: Promise<T>, ms: number = 20000): Promise<T> => {
   const timeout = new Promise<never>((_, reject) => {
@@ -19,15 +11,22 @@ const withTimeout = <T>(promise: Promise<T>, ms: number = 20000): Promise<T> => 
 
 export async function softenPhrase(phrase: string, occupation: string = 'General User', activeCategory: string = 'professional', mode: 'client' | 'tutor' = 'client') {
   try {
-    const ai = getAIClient();
-    // Dynamic Context Loading (Optimization) - Filter by category instead of sending all
-    const relevantGuiones = GUIONES.filter(g => g.category === activeCategory);
-    const dbString = JSON.stringify(relevantGuiones);
+    // Dynamic Context Loading (Optimization) - Fetch directly from Firebase
+    let dbString = "{}";
+    try {
+      const colRef = collection(db, 'learning_units');
+      const snapshot = await getDocs(colRef);
+      const relevantUnits = snapshot.docs
+        .map(d => d.data())
+        .filter((g: any) => g.category === activeCategory);
+      dbString = JSON.stringify(relevantUnits);
+    } catch(err) {
+      console.warn("Could not load from Firebase, AI will guess context.", err);
+    }
 
-    const response = await withTimeout(ai.models.generateContent({
-      model: "gemini-2.5-flash",
-      config: {
-        systemInstruction: `You are Analy, a tactful friend and expert professional translator for global workers.
+    const model = getGenerativeModel(vertexAI, {
+      model: "gemini-2.0-flash", 
+      systemInstruction: `You are Analy, a tactful friend and expert professional translator for global workers.
         Your Active Database of "Guiones de Oro" (Focused on ${activeCategory}): ${dbString}
         CRITICAL: Prioritize these guiones when the user's input matches or relates to these professional, survival, or social situations.
         Filter out all negativity, insults, and complaints. Extract ONLY the technical or professional core instruction.
@@ -38,35 +37,36 @@ export async function softenPhrase(phrase: string, occupation: string = 'General
           ? 'MODE: CLIENT COMMUNICATION. The user is asking you what to say to a client. Focus on the polite translation to say immediately. MUST set showClientCard to true.' 
           : 'MODE: STUDENT/TUTOR. The user wants to learn or asks a question. Act as a pedagogical English tutor. Give explanations, grammar tips, and constructive feedback in Spanish. MUST set showClientCard to false.'
         }`,
-        safetySettings: [
-          { category: HarmCategory.HARM_CATEGORY_HARASSMENT, threshold: HarmBlockThreshold.BLOCK_NONE },
-          { category: HarmCategory.HARM_CATEGORY_HATE_SPEECH, threshold: HarmBlockThreshold.BLOCK_NONE },
-          { category: HarmCategory.HARM_CATEGORY_SEXUALLY_EXPLICIT, threshold: HarmBlockThreshold.BLOCK_NONE },
-          { category: HarmCategory.HARM_CATEGORY_DANGEROUS_CONTENT, threshold: HarmBlockThreshold.BLOCK_NONE }
-        ],
+      safetySettings: [
+        { category: HarmCategory.HARM_CATEGORY_HARASSMENT, threshold: HarmBlockThreshold.BLOCK_NONE },
+        { category: HarmCategory.HARM_CATEGORY_HATE_SPEECH, threshold: HarmBlockThreshold.BLOCK_NONE },
+        { category: HarmCategory.HARM_CATEGORY_SEXUALLY_EXPLICIT, threshold: HarmBlockThreshold.BLOCK_NONE },
+        { category: HarmCategory.HARM_CATEGORY_DANGEROUS_CONTENT, threshold: HarmBlockThreshold.BLOCK_NONE }
+      ],
+      generationConfig: {
         responseMimeType: "application/json",
         responseSchema: {
-          type: Type.OBJECT,
+          type: SchemaType.OBJECT,
           properties: {
             softened: { 
-              type: Type.STRING, 
+              type: SchemaType.STRING, 
               description: "The professional English translation to speak to the client."
             },
             traduccion_literal: { 
-              type: Type.STRING, 
+              type: SchemaType.STRING, 
               description: "CRITICAL: A direct, literal word-by-word Spanish translation of the GENERATED 'softened' English phrase. Do NOT return the user's original input here. (Example: If softened is 'How's this looking?', this should be '¿Cómo se está viendo esto?')."
             },
-            pronunciation: { type: Type.STRING },
-            significado: { type: Type.STRING },
-            insulto_filtrado: { type: Type.BOOLEAN }
+            pronunciation: { type: SchemaType.STRING },
+            significado: { type: SchemaType.STRING },
+            insulto_filtrado: { type: SchemaType.BOOLEAN }
           },
           required: ["softened", "traduccion_literal", "pronunciation", "significado", "insulto_filtrado"]
         }
-      },
-      contents: `Soften this phrase: "${phrase}"`
-    }), 20000);
+      }
+    });
 
-    const rawText = response.text || '';
+    const responseResult = await withTimeout(model.generateContent(`Soften this phrase: "${phrase}"`), 20000);
+    const rawText = responseResult.response.text() || '';
     const cleanJson = rawText.replace(/```json\n?/g, '').replace(/```/g, '').trim();
     
     return JSON.parse(cleanJson);
@@ -78,34 +78,34 @@ export async function softenPhrase(phrase: string, occupation: string = 'General
 
 export async function analyzeToolImage(base64Image: string) {
   try {
-    const ai = getAIClient();
-    const response = await withTimeout(ai.models.generateContent({
-      model: "gemini-2.5-flash",
-      config: {
-        systemInstruction: `Identity the object in the image. It could be an everyday item, a professional tool, or a sign.
+    const model = getGenerativeModel(vertexAI, {
+      model: "gemini-2.0-flash",
+      systemInstruction: `Identity the object in the image. It could be an everyday item, a professional tool, or a sign.
         Provide: toolName, briefUsage (what it is for), and 3 common English phrases used with this object.
         Return as JSON.`,
+      generationConfig: {
         responseMimeType: "application/json",
         responseSchema: {
-          type: Type.OBJECT,
+          type: SchemaType.OBJECT,
           properties: {
-            toolName: { type: Type.STRING },
-            briefUsage: { type: Type.STRING },
+            toolName: { type: SchemaType.STRING },
+            briefUsage: { type: SchemaType.STRING },
             phrases: { 
-              type: Type.ARRAY,
-              items: { type: Type.STRING }
+              type: SchemaType.ARRAY,
+              items: { type: SchemaType.STRING }
             }
           },
           required: ["toolName", "briefUsage", "phrases"]
         }
-      },
-      contents: [
-        { inlineData: { data: base64Image, mimeType: "image/jpeg" } },
-        { text: "Analyze this object for contextual learning." }
-      ]
-    }), 12000);
+      }
+    });
 
-    return JSON.parse(response.text);
+    const responseResult = await withTimeout(model.generateContent([
+      { inlineData: { data: base64Image, mimeType: "image/jpeg" } },
+      "Analyze this object for contextual learning."
+    ]), 12000);
+
+    return JSON.parse(responseResult.response.text());
   } catch (error) {
     console.error("Vision Gemini Error:", error);
     return null;
@@ -114,39 +114,38 @@ export async function analyzeToolImage(base64Image: string) {
 
 export async function curateContent(input: string) {
   try {
-    const ai = getAIClient();
-    const response = await withTimeout(ai.models.generateContent({
-      model: "gemini-2.5-pro", // Switching to Pro for complex extraction/PDF logic
-      config: {
-        temperature: 0.2, // Alta precisión analítica
-        topP: 0.8,        // Reducción de variadas para respuestas lógicas directas
-        topK: 40,         // Enfocado en tokens de alta probabilidad
-        systemInstruction: `Act as a master curator for 'Analy'. 
+    const model = getGenerativeModel(vertexAI, {
+      model: "gemini-2.0-flash", // Reverted to 2.5 flash as 2.5 pro might not be fully available in some standard vertex firebase configurations yet
+      systemInstruction: `Act as a master curator for 'Analy'. 
         Extract lessons, vocabulary, and grammar tips from the provided text.
         Categorize the extracted tips appropriately (e.g., 'Gramática', 'Barbería', 'Supervivencia', 'Jerga/Social').
         Return as a structured JSON object with an array 'extractedTips'.`,
+      generationConfig: {
+        temperature: 0.2,
+        topP: 0.8,
+        topK: 40,
         responseMimeType: "application/json",
         responseSchema: {
-          type: Type.OBJECT,
+          type: SchemaType.OBJECT,
           properties: {
             extractedTips: {
-              type: Type.ARRAY,
+              type: SchemaType.ARRAY,
               items: {
-                type: Type.OBJECT,
+                type: SchemaType.OBJECT,
                 properties: {
-                  topic: { type: Type.STRING },
-                  content: { type: Type.STRING },
-                  category: { type: Type.STRING }
+                  topic: { type: SchemaType.STRING },
+                  content: { type: SchemaType.STRING },
+                  category: { type: SchemaType.STRING }
                 }
               }
             }
           }
         }
-      },
-      contents: input
-    }), 60000); // 60s timeout extended for large context window (PDFs/Long text)
+      }
+    });
 
-    return JSON.parse(response.text);
+    const responseResult = await withTimeout(model.generateContent(input), 60000);
+    return JSON.parse(responseResult.response.text());
   } catch (error) {
     console.error("Curation Error:", error);
     return null;
@@ -155,44 +154,49 @@ export async function curateContent(input: string) {
 
 export async function extractFromYouTube(url: string) {
   try {
-    const ai = getAIClient();
-    const response = await withTimeout(ai.models.generateContent({
-      model: "gemini-2.5-pro", // Switching to Pro for deep link/video analysis
-      config: {
-        temperature: 0.2, // Alta precisión analítica
+    const model = getGenerativeModel(vertexAI, {
+      model: "gemini-2.0-flash", // Reverted to 2.5 flash
+      systemInstruction: `You are an expert English Pedagogy AI for the 'Analy' platform.
+        You will receive a URL or description of a YouTube/TikTok/IG video.
+        Your mission is to extract the best "Golden Phrases" (Tactical Phrases) from the context, strictly focusing on teaching English grammar, vocabulary, pronunciation, and cultural usage.
+        For each phrase, provide:
+        - phrase_en: The tactical softened English version.
+        - phrase_es: The professional Spanish translation.
+        - phonetic_tactic: A simple phonetic guide for Spanish speakers.
+        - learning_tips: An array of strings explaining WHY it's said that way (grammar structure, vocabulary nuances, cultural context). MUST be highly educational.
+        - grammar_tag: The main grammatical tag (e.g., 'Presente Simple', 'Verbos Modales', 'Phrasal Verbs').
+        - difficulty: A number from 1 to 5 indicating the CEFR difficulty (1=A1, 5=C1/C2).
+        - category: Auto-classified as 'professional', 'survival', or 'social'.
+        Return an ARRAY of these objects in JSON format.`,
+      generationConfig: {
+        temperature: 0.2,
         topP: 0.8,
         topK: 40,
-        systemInstruction: `You are an expert Content Curator for the 'Analy' platform.
-        You will receive a URL or description of a YouTube/TikTok/IG video (Lesson or Class).
-        Your mission is to extract the best "Golden Phrases" (Tactical Phrases) for workers.
-        Auto-classify the content into one of these relevant categories based on the content (e.g., 'professional', 'survival', 'social', 'grammar', 'barbería' or suggest a new short one).
-        For each phrase, provide:
-        - spanish: The lesson/phrase in Spanish.
-        - english: The tactical softened English version.
-        - pronunciation: A simple phonetic guide for Spanish speakers.
-        - significado: Why this phrase is useful in a work context.
-        - category: The auto-classified category string.
-        Return an ARRAY of these objects in JSON format.`,
         responseMimeType: "application/json",
         responseSchema: {
-          type: Type.ARRAY,
+          type: SchemaType.ARRAY,
           items: {
-            type: Type.OBJECT,
+            type: SchemaType.OBJECT,
             properties: {
-              spanish: { type: Type.STRING },
-              english: { type: Type.STRING },
-              pronunciation: { type: Type.STRING },
-              significado: { type: Type.STRING },
-              category: { type: Type.STRING } // Removed fixed enum to allow smart sponge categorization
+              phrase_en: { type: SchemaType.STRING },
+              phrase_es: { type: SchemaType.STRING },
+              phonetic_tactic: { type: SchemaType.STRING },
+              learning_tips: { 
+                type: SchemaType.ARRAY,
+                items: { type: SchemaType.STRING }
+              },
+              grammar_tag: { type: SchemaType.STRING },
+              difficulty: { type: SchemaType.NUMBER },
+              category: { type: SchemaType.STRING } 
             },
-            required: ["spanish", "english", "pronunciation", "significado", "category"]
+            required: ["phrase_en", "phrase_es", "phonetic_tactic", "learning_tips", "grammar_tag", "difficulty", "category"]
           }
         }
-      },
-      contents: `Extract tactical intelligence and auto-categorize from this source context: ${url}`
-    }), 60000); // 60s timeout extended for deep video context window
+      }
+    });
 
-    return JSON.parse(response.text);
+    const responseResult = await withTimeout(model.generateContent(`Extract pedagogical English intelligence from this source context: ${url}`), 60000);
+    return JSON.parse(responseResult.response.text());
   } catch (error) {
     console.error("YouTube Logic Error:", error);
     return null;
