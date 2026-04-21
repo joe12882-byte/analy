@@ -72,6 +72,19 @@ service cloud.firestore {
       allow delete: if isAdmin();
     }
 
+    // SYSTEM (TTS QUOTA)
+    function isValidSystemQuota(data) {
+      return data.keys().hasAll(['used', 'monthId']) &&
+             data.used is number &&
+             data.monthId is string && data.monthId.size() == 7; // YYYY-MM
+    }
+    match /system/{docId} {
+      allow get, list: if isSignedIn();
+      allow create: if isSignedIn() && isValidId(docId) && isValidSystemQuota(incoming()) && incoming().keys().size() == 2;
+      allow update: if isSignedIn() && isValidSystemQuota(incoming()) && incoming().diff(existing()).affectedKeys().hasOnly(['used', 'monthId']);
+      allow delete: if isAdmin();
+    }
+
     // User Validator
     function isValidUser(data) {
       return data.keys().hasAll(['email', 'role', 'createdAt']) && 

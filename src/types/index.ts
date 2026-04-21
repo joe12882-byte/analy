@@ -30,9 +30,11 @@ export interface LearningUnit {
   phrase_en: string;
   phrase_es: string;
   phonetic_tactic: string;
-  learning_tips: string[];
-  grammar_tag: string;
-  difficulty: number; // 1 to 5
+  learning_tips?: string[];
+  learning_tip?: string; // Nuevo modelo
+  grammar_tags?: string[]; // Nuevo modelo
+  grammar_tag?: string;
+  difficulty: number | string; // 1 to 5 or 'beginner', 'intermediate'
 }
 
 export interface IntelSponge {
@@ -46,6 +48,7 @@ export interface IntelSponge {
 
 export interface UserProfile {
   id?: string;
+  uid?: string;
   displayName?: string;
   name?: string; // legacy support
   photoURL?: string;
@@ -57,4 +60,64 @@ export interface UserProfile {
   role: 'user' | 'master';
   onboarded?: boolean;
   analyCalibrated?: boolean;
+}
+
+// NUEVOS TIPOS: AR VISION
+export interface ARBoundingBox {
+  x: number;
+  y: number;
+  w: number;
+  h: number;
+}
+
+export interface ARObject {
+  label_en: string;
+  label_es: string;
+  phonetic_tactic: string;
+  example_en: string;
+  example_es: string;
+  bbox: ARBoundingBox;
+}
+
+// NUEVOS TIPOS: ROLEPLAY
+export interface RoleplayTurn {
+  role: 'user' | 'anali';
+  text: string;
+}
+
+export interface RoleplayResult {
+  reply_en: string;
+  reply_es: string;
+  phonetic_tactic: string;
+  emotion: string;
+  push_back: string;
+}
+
+export interface RoleplayScore {
+  clarity: number;
+  politeness: number;
+  confidence: number;
+  accuracy: number;
+}
+
+export interface RoleplayGradeResult {
+  scores: RoleplayScore;
+  overall: number;
+  strengths: string[];
+  improvements: string[];
+  corrected_examples: { user: string; better_en: string; phonetic_tactic: string; tip: string; }[];
+  anali_reminder: string;
+}
+
+// NUEVOS TIPOS: SHADOW / PRONUNCIATION
+export interface ShadowGradeResult {
+  accuracy: number;
+  fluency: number;
+  overall: number;
+  matched_words: string[];
+  missed_words: string[];
+  extra_words: string[];
+  tips: string[];
+  encouragement: string;
+  anali_reminder: string;
 }

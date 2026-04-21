@@ -1,85 +1,73 @@
 import React, { useState, useEffect } from 'react';
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
-import Layout from './components/Common/Layout.tsx';
-import ActionDashboard from './components/ActionDashboard.tsx';
-import ARCamera from './components/ARCamera.tsx';
-import AdminCurador from './components/AdminCurador.tsx';
-import UserLibrary from './components/UserLibrary.tsx';
-import { UserProfile } from './types';
+import Layout from './components/Common/Layout';
+import { AuthProvider, useAuth } from './components/AuthProvider';
+import ActionDashboard from './components/ActionDashboard';
+import ARCamera from './components/ARCamera';
+import AdminCurador from './components/AdminCurador';
+import UserLibrary from './components/UserLibrary';
+import VoiceSelector from './components/VoiceSelector';
 
 const ADMIN_EMAIL = 'joe12882@gmail.com';
 
 function SettingsMock() {
   return (
-    <div className="p-6 space-y-4">
+    <div className="p-6 space-y-4 pb-32">
       <div className="space-y-1 mb-8">
-        <h2 className="text-2xl font-black uppercase italic text-[#00F0FF]">Tactical Gear</h2>
-        <p className="text-gray-500 text-xs font-bold tracking-widest uppercase">System Configurations</p>
+        <h2 className="text-2xl font-black uppercase italic text-teal-500">Configuración</h2>
+        <p className="text-slate-400 text-xs font-bold tracking-widest uppercase">Tu Perfil y Sistema</p>
       </div>
 
       <div className="space-y-6">
-        <div className="analy-card p-5 space-y-3 bg-[#0F0F0F] border border-green-500/20">
-          <div className="flex items-center justify-between">
-            <span className="text-[10px] font-black uppercase tracking-widest text-green-400">Vertex AI Secure Link</span>
-            <span className="text-[8px] bg-green-500/10 px-2 py-0.5 rounded text-green-400 font-mono">IAM AUTH</span>
-          </div>
-          <p className="text-[10px] text-gray-500 font-mono leading-relaxed">
-            La conexión con Google Cloud Vertex AI está asegurada y manejada automáticamente a nivel de Firebase por IAM. No se requieren manual API Keys.
-          </p>
-        </div>
+        <VoiceSelector />
 
-        <div className="space-y-4">
-          <div className="analy-card p-4 flex justify-between items-center opacity-50">
-            <span className="text-xs font-bold uppercase tracking-wider">Ajuste de Lexicón</span>
-            <span className="text-[8px] bg-white/5 px-2 py-1 rounded text-[#00F0FF] font-black">LOCKED</span>
+        <div className="bg-white p-5 space-y-3 border border-emerald-100 rounded-3xl shadow-sm">
+          <div className="flex items-center justify-between">
+            <span className="text-[10px] font-black uppercase tracking-widest text-emerald-500">Google Gemini AI</span>
+            <span className="text-[8px] bg-emerald-50 px-2 py-0.5 rounded text-emerald-600 font-mono">CONNECTED</span>
           </div>
-          <div className="analy-card p-4 flex justify-between items-center">
-            <span className="text-xs font-bold uppercase tracking-wider">Voz de Enlace</span>
-            <span className="text-[10px] text-[#00F0FF] font-black mono-display">ZEPHYR (US)</span>
-          </div>
-          <div className="analy-card p-4 flex justify-between items-center">
-            <span className="text-xs font-bold uppercase tracking-wider">Firma Visual</span>
-            <div className="w-10 h-6 bg-[#00F0FF] rounded-full relative">
-              <div className="absolute right-1 top-1 w-4 h-4 bg-[#0F0F0F] rounded-full" />
-            </div>
-          </div>
+          <p className="text-[10px] text-slate-500 font-medium leading-relaxed">
+            La conexión con el motor de Inteligencia Artificial está asegurada y manejada automáticamente.
+          </p>
         </div>
 
         <button 
           onClick={() => { localStorage.clear(); window.location.reload(); }}
-          className="w-full py-4 mt-8 border border-red-500/30 text-red-500 text-[10px] font-black uppercase tracking-[0.2em] rounded-xl active:bg-red-500/10 transition-all"
+          className="w-full py-4 mt-8 border border-rose-200 text-rose-500 text-[10px] font-black uppercase tracking-[0.2em] rounded-2xl hover:bg-rose-50 active:scale-95 transition-all shadow-sm bg-white"
         >
-          Factory Reset
+          Borrar Caché Local
         </button>
       </div>
     </div>
   );
 }
 
-export default function App() {
-  const [profile, setProfile] = useState<UserProfile | null>(null);
-
-  useEffect(() => {
-    const saved = localStorage.getItem('analy_user_profile');
-    if (saved) setProfile(JSON.parse(saved));
-  }, []);
-
+function PrivateAppRoutes() {
+  const { profile } = useAuth();
   const isMaster = profile?.role === 'master' || profile?.email === ADMIN_EMAIL;
 
   return (
+    <Routes>
+      <Route path="/" element={<Layout />}>
+        <Route index element={<ActionDashboard />} />
+        <Route path="camera" element={<ARCamera />} />
+        <Route 
+          path="admin" 
+          element={isMaster ? <AdminCurador /> : <UserLibrary />} 
+        />
+        <Route path="settings" element={<SettingsMock />} />
+        <Route path="*" element={<Navigate to="/" replace />} />
+      </Route>
+    </Routes>
+  );
+}
+
+export default function App() {
+  return (
     <BrowserRouter>
-      <Routes>
-        <Route path="/" element={<Layout />}>
-          <Route index element={<ActionDashboard />} />
-          <Route path="camera" element={<ARCamera />} />
-          <Route 
-            path="admin" 
-            element={isMaster ? <AdminCurador /> : <UserLibrary />} 
-          />
-          <Route path="settings" element={<SettingsMock />} />
-          <Route path="*" element={<Navigate to="/" replace />} />
-        </Route>
-      </Routes>
+      <AuthProvider>
+        <PrivateAppRoutes />
+      </AuthProvider>
     </BrowserRouter>
   );
 }

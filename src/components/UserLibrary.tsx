@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Search, ArrowRight, Loader2, Save, BookOpen, Trash2 } from 'lucide-react';
+import { Search, ArrowRight, Loader2, Save, BookOpen, Trash2, Sparkles } from 'lucide-react';
 import { curateContent } from '../lib/gemini';
 import { CurationEntry } from '../types';
 
@@ -44,27 +44,32 @@ export default function UserLibrary() {
   return (
     <div className="p-6 space-y-8 pb-32">
       <div className="space-y-2">
-        <h2 className="text-2xl font-black tracking-tight uppercase italic text-[#00F0FF]">Mi Biblioteca</h2>
-        <p className="text-gray-500 text-xs font-bold tracking-widest uppercase">Tus extracciones tácticas personales</p>
+        <h2 className="text-2xl font-black tracking-tight text-teal-600">Mi Biblioteca</h2>
+        <p className="text-slate-400 text-xs font-bold tracking-widest uppercase">Tus extracciones tácticas personales</p>
       </div>
 
-      <div className="space-y-4">
+      <div className="bg-white rounded-3xl p-6 shadow-sm border border-slate-100 space-y-4">
+        <div className="flex items-center gap-2 mb-2">
+           <div className="p-2 bg-teal-50 text-teal-600 rounded-xl">
+             <Search size={20} />
+           </div>
+           <h3 className="text-sm font-bold text-slate-800">Analizador Inteligente</h3>
+        </div>
+        <p className="text-xs text-slate-500 font-medium">Pega un texto o descripción aquí y Anali extraerá los mejores tips de inglés y vocabulario de forma automática.</p>
+        
         <div className="relative group">
           <textarea 
-            className="w-full h-40 bg-[#1A1A1A] border border-white/5 rounded-2xl p-4 text-sm focus:ring-1 focus:ring-[#00F0FF] outline-none resize-none transition-all"
-            placeholder="Pega un texto o descripción para extraer tácticas..."
+            className="w-full h-32 bg-slate-50 border border-slate-200 rounded-2xl p-4 text-sm focus:border-teal-400 focus:ring-4 focus:ring-teal-400/10 outline-none resize-none transition-all text-slate-700 font-medium"
+            placeholder="Ejemplo: Cliente enojado me gritó porque la comida tardó 20 mins..."
             value={input}
             onChange={(e) => setInput(e.target.value)}
           />
-          <div className="absolute bottom-4 right-4 text-[9px] text-[#00F0FF] font-black mono-display">
-            {input.length} BITS
-          </div>
         </div>
 
         <button 
           onClick={handleCurate}
           disabled={loading || !input}
-          className="w-full bg-[#00F0FF] text-[#0F0F0F] font-black py-5 rounded-2xl flex items-center justify-center gap-2 hover:shadow-[0_0_30px_rgba(0,240,255,0.4)] transition-all disabled:opacity-30 disabled:grayscale uppercase tracking-widest text-xs"
+          className="w-full bg-teal-500 text-white font-bold py-4 rounded-2xl flex items-center justify-center gap-2 shadow-md shadow-teal-500/20 transition-all disabled:opacity-50 active:scale-95"
         >
           {loading ? (
             <>
@@ -82,27 +87,29 @@ export default function UserLibrary() {
 
       {results && (
         <div className="space-y-6 animate-in fade-in slide-in-from-bottom-4">
-          <div className="flex items-center justify-between border-b border-white/5 pb-2">
-            <h3 className="text-[10px] font-black uppercase tracking-[0.2em] text-[#00F0FF]">Resultado del Análisis</h3>
-            <button onClick={() => setResults(null)} className="text-[9px] text-gray-500 uppercase font-black">Limpiar</button>
+          <div className="flex items-center justify-between border-b border-slate-200 pb-2">
+            <div className="flex items-center gap-2">
+              <Sparkles size={16} className="text-teal-500" />
+              <h3 className="text-sm font-bold text-slate-800">Resultados del Análisis</h3>
+            </div>
+            <button onClick={() => setResults(null)} className="text-xs text-slate-500 font-semibold hover:text-slate-800 transition-colors">Limpiar</button>
           </div>
 
-          <div className="grid gap-4">
+          <div className="grid gap-4 md:grid-cols-2">
             {results.extractedTips?.map((tip: any, i: number) => (
-              <div key={i} className="analy-card p-5 space-y-3 relative group overflow-hidden border-[#00F0FF]/10 active:scale-[0.98] transition-all">
-                <div className="flex items-center justify-between">
-                  <div className="flex items-center gap-2">
-                    <div className="w-1.5 h-1.5 bg-[#00F0FF] rounded-full" />
-                    <h4 className="font-black text-xs uppercase tracking-widest mono-display">{tip.topic}</h4>
-                  </div>
+              <div key={i} className="bg-white rounded-3xl p-6 shadow-sm border border-slate-100 flex flex-col justify-between group overflow-hidden">
+                <div className="flex items-center justify-between mb-4">
+                  <h4 className="font-bold text-sm text-slate-800">{tip.topic}</h4>
                   <button 
                     onClick={() => saveEntry(tip)}
-                    className="p-2 bg-[#00F0FF] text-[#0F0F0F] rounded-xl hover:scale-110 transition-all font-black"
+                    className="p-2 bg-teal-50 text-teal-600 rounded-xl hover:bg-teal-100 hover:scale-105 transition-all shadow-sm active:scale-95"
                   >
-                    <Save size={14} />
+                    <Save size={16} />
                   </button>
                 </div>
-                <p className="text-gray-400 text-sm italic font-medium leading-relaxed">"{tip.content}"</p>
+                <div className="bg-slate-50 p-4 rounded-2xl">
+                   <p className="text-slate-600 text-sm italic font-medium leading-relaxed">"{tip.content}"</p>
+                </div>
               </div>
             ))}
           </div>
@@ -111,27 +118,29 @@ export default function UserLibrary() {
 
       {savedEntries.length > 0 && (
         <div className="space-y-6">
-          <div className="flex items-center justify-between border-b border-white/5 pb-2">
-            <h3 className="text-[10px] font-black uppercase tracking-[0.2em] text-gray-500 italic">Unidades en Reserva</h3>
-            <span className="text-[10px] font-black text-gray-600 mono-display">{savedEntries.length} Items</span>
+          <div className="flex items-center justify-between border-b border-slate-200 pb-2">
+            <h3 className="text-sm font-bold text-slate-800">Unidades en Reserva</h3>
+            <span className="text-xs font-bold text-teal-600 bg-teal-50 px-2 py-1 rounded-lg">{savedEntries.length} Items</span>
           </div>
 
-          <div className="grid gap-4">
+          <div className="grid gap-4 md:grid-cols-2">
             {savedEntries.map((entry) => (
-              <div key={entry.id} className="analy-card p-5 space-y-3 relative group overflow-hidden bg-black/40 border-white/5">
-                <div className="flex items-center justify-between">
-                  <h4 className="font-black text-xs uppercase tracking-widest mono-display text-gray-300">{entry.topic}</h4>
-                  <div className="flex items-center gap-2">
-                    <span className="text-[8px] bg-white/5 text-gray-500 px-2 py-0.5 rounded-full font-black uppercase">{entry.category}</span>
-                    <button 
-                      onClick={() => deleteEntry(entry.id)}
-                      className="p-2 text-gray-600 hover:text-red-500 transition-colors"
-                    >
-                      <Trash2 size={14} />
-                    </button>
+              <div key={entry.id} className="bg-white rounded-2xl p-5 border border-slate-100 shadow-sm relative group">
+                <div className="flex items-center justify-between mb-2 w-full">
+                  <div className="flex items-center gap-2 max-w-[80%]">
+                    <span className="shrink-0 text-[9px] bg-slate-100 text-slate-500 px-2 py-1 rounded-full font-bold uppercase tracking-widest truncate">
+                      {entry.category}
+                    </span>
+                    <h4 className="font-bold text-xs text-slate-700 truncate">{entry.topic}</h4>
                   </div>
+                  <button 
+                    onClick={() => deleteEntry(entry.id)}
+                    className="p-1.5 text-slate-300 hover:text-rose-500 hover:bg-rose-50 rounded-full transition-colors shrink-0"
+                  >
+                    <Trash2 size={16} />
+                  </button>
                 </div>
-                <p className="text-gray-500 text-sm italic font-medium leading-relaxed">"{entry.content}"</p>
+                <p className="text-slate-500 text-sm font-medium leading-relaxed mt-2 line-clamp-3 group-hover:line-clamp-none transition-all">"{entry.content}"</p>
               </div>
             ))}
           </div>
@@ -139,12 +148,9 @@ export default function UserLibrary() {
       )}
 
       {!results && !loading && savedEntries.length === 0 && (
-        <div className="py-20 flex flex-col items-center justify-center text-center space-y-4 opacity-10">
-          <div className="relative">
-            <BookOpen size={80} strokeWidth={1} />
-            <Search className="absolute -bottom-2 -right-2 bg-[#0F0F0F] rounded-full p-2" size={32} />
-          </div>
-          <p className="text-[10px] font-black tracking-[0.3em] uppercase">Biblioteca Vacía</p>
+        <div className="py-20 flex flex-col items-center justify-center text-center space-y-4 opacity-50 bg-white rounded-3xl border border-slate-100 shadow-sm">
+          <BookOpen className="text-slate-300" size={64} strokeWidth={1.5} />
+          <p className="text-[10px] font-bold tracking-[0.2em] uppercase text-slate-400">Tu biblioteca está vacía</p>
         </div>
       )}
     </div>

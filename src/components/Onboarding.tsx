@@ -15,7 +15,7 @@ const OCCUPATIONS = [
   'Mecánico',
   'Mesero',
   'Usuario General',
-  'Contrucción',
+  'Construcción',
   'Otro'
 ];
 
@@ -47,16 +47,19 @@ export default function Onboarding({ onComplete }: OnboardingProps) {
     }
   };
 
+  const [voiceVariations, setVoiceVariations] = useState<string[]>([]);
+
   const startCalibration = () => {
     const SpeechRecognition = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
     if (!SpeechRecognition) {
       alert("El reconocimiento de voz no es compatible con este navegador.");
-      handleFinish(); // Fallback
+      handleFinish([]); // Fallback
       return;
     }
 
     setIsListening(true);
-    let localCount = 0;
+    let localCount = analyCount;
+    let localVariations = [...voiceVariations];
     const wakeWords = ['analy', 'analí', 'anali', 'analee', 'annaly', 'ana lee', 'ana li', 'anna lee', 'analeigh'];
     const regex = new RegExp(wakeWords.join('|'), 'gi');
 
@@ -75,21 +78,29 @@ export default function Onboarding({ onComplete }: OnboardingProps) {
       
       if (newFinals.trim().length > 0) {
          const matches = newFinals.match(regex);
-         if (matches) {
-            localCount += matches.length;
-            setAnalyCount(c => Math.min(c + matches.length, 3));
+         if (matches && localCount < 3) {
+            // Take only what's needed to reach 3
+            matches.forEach(m => {
+              if (localCount < 3) {
+                localCount++;
+                localVariations.push(m);
+              }
+            });
+            
+            setAnalyCount(localCount);
+            setVoiceVariations(localVariations);
             
             if (localCount >= 3) {
               recognition.onend = null; // Prevent auto-restart
-              recognitionRef.current = null; // Quita la referencia para evitar falsos arranques en onend
+              recognitionRef.current = null;
               
               try {
                 recognition.stop();
               } catch(e) {}
               
               setTimeout(() => {
-                handleFinish();
-              }, 1200);
+                handleFinish(localVariations);
+              }, 1500);
             }
          }
       }
@@ -103,8 +114,6 @@ export default function Onboarding({ onComplete }: OnboardingProps) {
     };
 
     recognition.onend = () => {
-      // Solo reiniciar si no hemos llegado a 3 conteos, aún tenemos ref, 
-      // y si el estado reactivo marca isListening=true (indicando que no se ha interrumpido intencionalmente o fallado)
       if (localCount < 3 && recognitionRef.current) {
         setTimeout(() => {
           try { 
@@ -133,8 +142,8 @@ export default function Onboarding({ onComplete }: OnboardingProps) {
     };
   }, []);
 
-  const handleFinish = async () => {
-    if(profile && user) {
+  const handleFinish = async (variations: string[] = voiceVariations) => {
+    if(user) {
       try {
         const userRef = doc(db, 'users', user.uid);
         
@@ -142,25 +151,40 @@ export default function Onboarding({ onComplete }: OnboardingProps) {
           occupation,
           onboarded: true,
           analyCalibrated: true,
+          voiceVariations: variations,
           updatedAt: serverTimestamp()
         };
         
-        await updateDoc(userRef, updates);
+        // Ensure doc is created if it didn't exist
+        await updateDoc(userRef, updates).catch(async () => {
+          const { setDoc } = await import('firebase/firestore');
+          await setDoc(userRef, { ...updates, email: user.email, uid: user.uid, role: 'student' }, { merge: true });
+        });
         
         const updatedProfile = { 
-          ...profile, 
+          ...(profile || {
+             uid: user.uid,
+             email: user.email,
+             role: 'student',
+             createdAt: new Date().toISOString()
+          }), 
           occupation, 
           onboarded: true, 
-          analyCalibrated: true 
-        };
+          analyCalibrated: true,
+          voiceVariations: variations
+        } as UserProfile;
         
         localStorage.setItem('analy_user_profile', JSON.stringify(updatedProfile));
         onComplete(updatedProfile);
       } catch (error) {
         console.error("Failed to update profile", error);
-        // Fallback to local
-        onComplete({ ...profile, occupation, onboarded: true, analyCalibrated: true });
+        // Fallback robusto local si falla Firebase
+        const fallbackProfile = { ...(profile || {}), occupation, onboarded: true, analyCalibrated: true, voiceVariations: variations } as UserProfile;
+        onComplete(fallbackProfile);
       }
+    } else {
+      // Offline fallback
+      onComplete({ occupation, onboarded: true, analyCalibrated: true, voiceVariations: variations, role: 'student', uid: 'demo', email: 'demo@demo.com' } as unknown as UserProfile);
     }
   };
 
@@ -263,28 +287,25 @@ export default function Onboarding({ onComplete }: OnboardingProps) {
               <p className="text-gray-500 text-sm tracking-wide">Para calibrar su sistema de escucha táctica, di su nombre claramente 3 veces.</p>
             </div>
             
-            <div className="flex justify-center gap-4">
-              {[0, 1, 2].map((i) => (
-                <div 
-                  key={i}
-                  className={`w-12 h-12 rounded-xl flex items-center justify-center border-2 transition-all duration-500 ${
-                    analyCount > i 
-                      ? 'bg-[#00F0FF] border-[#00F0FF] text-[#0F0F0F] scale-110' 
-                      : 'bg-transparent border-white/10 text-white/20'
-                  }`}
-                >
-                   {analyCount > i ? <CheckCircle size={20} /> : <span className="font-black">AR</span>}
-                </div>
-              ))}
+            {/* Visual Progress Bar 1/3 */}
+            <div className="w-full bg-white/5 rounded-full h-4 overflow-hidden border border-white/10 relative">
+               <motion.div 
+                 className="absolute left-0 top-0 bottom-0 bg-[#00F0FF]"
+                 initial={{ width: 0 }}
+                 animate={{ width: `${(analyCount / 3) * 100}%` }}
+               />
+               <div className="absolute inset-0 flex items-center justify-center text-[10px] font-black mix-blend-difference text-white">
+                 {analyCount} / 3
+               </div>
             </div>
 
             <div className="space-y-6">
-              <div className="text-[10px] text-gray-500 uppercase font-black tracking-[0.3em] h-4">
+              <div className="text-[10px] text-[#00F0FF] uppercase font-black tracking-[0.2em] h-4">
                 {!isListening && "Presiona para activar micro"}
-                {isListening && analyCount === 0 && "Esperando: Di 'Analy'..."}
-                {isListening && analyCount === 1 && "Repite: Di 'Analy'..."}
-                {isListening && analyCount === 2 && "Última vez: Di 'Analy'..."}
-                {analyCount >= 3 && "¡Calibración exitosa!"}
+                {isListening && analyCount === 0 && "PASO 1: Di 'Analy'..."}
+                {isListening && analyCount === 1 && "PASO 2: Repítelo de nuevo..."}
+                {isListening && analyCount === 2 && "PASO 3: Una vez más para confirmar..."}
+                {analyCount >= 3 && "¡VOZ DE ANALÍ SINCRONIZADA!"}
               </div>
               
               {!isListening && analyCount < 3 ? (
@@ -295,10 +316,17 @@ export default function Onboarding({ onComplete }: OnboardingProps) {
                   <span>Iniciar Calibración</span>
                   <span className="text-[8px] opacity-50">(Dar permisos de micrófono)</span>
                 </button>
+              ) : analyCount >= 3 ? (
+                 <button 
+                  onClick={() => handleFinish(voiceVariations)}
+                  className="w-full bg-[#00F0FF] text-[#0F0F0F] py-5 rounded-2xl font-black uppercase tracking-widest text-xs flex flex-col items-center justify-center gap-1 transition-all active:scale-95 shadow-[0_0_30px_#00F0FF44] animate-pulse"
+                >
+                  <span>ENTRAR A ANALÍ</span>
+                </button>
               ) : (
                 <div className="w-full bg-[#1A1A1A] text-[#00F0FF] py-5 rounded-2xl font-black uppercase tracking-widest text-xs flex flex-col items-center justify-center gap-2 border border-[#00F0FF] listening-pulse">
                   <span>
-                    {analyCount >= 3 ? "Completando..." : "Escuchando en vivo..."}
+                    Escuchando en vivo...
                   </span>
                 </div>
               )}

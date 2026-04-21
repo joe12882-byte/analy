@@ -1,6 +1,8 @@
 import React, { useState, useEffect } from 'react';
 import { Database, Search, ArrowRight, Trash2, FolderSync, ShieldAlert, Sparkles, Filter, ChevronRight } from 'lucide-react';
 import { CurationEntry } from '../types';
+import VoiceSelector from './VoiceSelector';
+import TTSQuotaMeter from './TTSQuotaMeter';
 
 export default function AdminVault() {
   const [intelDb, setIntelDb] = useState<CurationEntry[]>([]);
@@ -54,19 +56,31 @@ export default function AdminVault() {
   return (
     <div className="p-6 space-y-8 pb-32">
       <div className="space-y-1">
-        <h2 className="text-2xl font-black tracking-tight uppercase italic text-[#00F0FF] flex items-center gap-2">
-          <Database size={24} /> Master Knowledge Hub
+        <h2 className="text-2xl font-black tracking-tight text-teal-600 flex items-center gap-2">
+          <Database size={24} /> Bóveda de Conocimiento
         </h2>
-        <p className="text-gray-500 text-[10px] font-black tracking-widest uppercase italic">Cerebro Categorizado de Analy</p>
+        <p className="text-slate-400 text-xs font-bold tracking-widest uppercase">Cerebro Central de Anali</p>
+      </div>
+
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+        {/* Acceso rápido a configuración de voz para el Master */}
+        <div className="max-w-md w-full">
+           <VoiceSelector />
+        </div>
+        
+        {/* Medidor de Cuota Premium */}
+        <div className="max-w-md w-full">
+           <TTSQuotaMeter />
+        </div>
       </div>
 
       <div className="flex gap-2 overflow-x-auto pb-2 scrollbar-hide -mx-6 px-6">
         <button
           onClick={() => setSelectedCategory(null)}
-          className={`shrink-0 px-4 py-2 rounded-xl text-[10px] uppercase font-black tracking-widest transition-all ${
+          className={`shrink-0 px-4 py-2 rounded-2xl text-[10px] uppercase font-bold tracking-widest transition-all shadow-sm ${
             selectedCategory === null 
-              ? 'bg-[#00F0FF] text-[#0F0F0F] shadow-[0_0_15px_rgba(0,240,255,0.4)]' 
-              : 'bg-[#1A1A1A] text-gray-400 hover:text-[#00F0FF]'
+              ? 'bg-teal-500 text-white shadow-teal-500/20' 
+              : 'bg-white text-slate-500 hover:text-teal-600 border border-slate-200'
           }`}
         >
           Todo ({intelDb.length})
@@ -75,10 +89,10 @@ export default function AdminVault() {
           <button
             key={cat}
             onClick={() => setSelectedCategory(cat)}
-            className={`shrink-0 px-4 py-2 rounded-xl text-[10px] uppercase font-black tracking-widest transition-all ${
+            className={`shrink-0 px-4 py-2 rounded-2xl text-[10px] uppercase font-bold tracking-widest transition-all shadow-sm ${
               selectedCategory === cat 
-                ? 'bg-[#00F0FF] text-[#0F0F0F] shadow-[0_0_15px_rgba(0,240,255,0.4)]' 
-                : 'bg-[#1A1A1A] text-gray-400 hover:text-[#00F0FF]'
+                ? 'bg-teal-500 text-white shadow-teal-500/20' 
+                : 'bg-white text-slate-500 hover:text-teal-600 border border-slate-200'
             }`}
           >
             {cat} ({intelDb.filter(i => i.category === cat).length})
@@ -86,33 +100,33 @@ export default function AdminVault() {
         ))}
       </div>
 
-      <div className="grid gap-3">
+      <div className="grid gap-4">
         {filteredDb.length === 0 ? (
-          <div className="py-20 flex flex-col items-center justify-center text-center space-y-4 opacity-50">
-             <Filter size={48} className="text-gray-600" />
-             <p className="text-[10px] font-black tracking-[0.3em] uppercase text-gray-500">Cerebro Vacío en esta Sección</p>
+          <div className="py-20 flex flex-col items-center justify-center text-center space-y-4 opacity-50 bg-white rounded-3xl border border-slate-100 shadow-sm">
+             <Filter size={48} className="text-slate-300" />
+             <p className="text-[10px] font-bold tracking-[0.2em] uppercase text-slate-400">Sin datos en esta categoría</p>
           </div>
         ) : (
           filteredDb.map(entry => (
-            <div key={entry.id} className="analy-card p-4 flex gap-4 items-start group">
-              <div className="flex flex-col gap-2 w-full">
-                <div className="flex items-center justify-between w-full">
-                   <div className="flex items-center gap-2 overflow-hidden">
-                     <span className="shrink-0 text-[8px] bg-white/5 text-[#00F0FF] px-2 py-0.5 rounded border border-[#00F0FF]/20 font-black uppercase tracking-widest">
-                       {entry.category || 'General'}
-                     </span>
-                     <h4 className="font-bold text-xs text-gray-300 truncate">{entry.topic}</h4>
-                   </div>
-                   <button 
-                     onClick={(e) => deleteEntry(entry.id, e)}
-                     className="p-1.5 text-gray-600 hover:bg-red-500/10 hover:text-red-500 rounded-lg transition-colors border border-transparent hover:border-red-500/20"
-                   >
-                     <Trash2 size={12} />
-                   </button>
-                </div>
-                <p className="text-[10px] text-gray-500 font-mono leading-relaxed line-clamp-3 group-hover:line-clamp-none transition-all">
-                  {entry.content}
-                </p>
+            <div key={entry.id} className="bg-white rounded-3xl p-5 border border-slate-100 shadow-sm flex flex-col gap-3 group hover:border-teal-200 transition-colors relative overflow-hidden">
+              <div className="flex items-center justify-between w-full">
+                 <div className="flex items-center gap-2 overflow-hidden">
+                   <span className="shrink-0 text-[9px] bg-sky-50 text-sky-600 px-2 py-1 rounded-full font-bold uppercase tracking-widest border border-sky-100">
+                     {entry.category || 'General'}
+                   </span>
+                   <h4 className="font-bold text-sm text-slate-700 truncate">{entry.topic}</h4>
+                 </div>
+                 <button 
+                   onClick={(e) => deleteEntry(entry.id, e)}
+                   className="p-2 text-slate-300 hover:bg-rose-50 hover:text-rose-500 rounded-full transition-colors"
+                 >
+                   <Trash2 size={16} />
+                 </button>
+              </div>
+              <div className="bg-slate-50 p-4 rounded-2xl">
+                 <p className="text-sm text-slate-600 font-medium leading-relaxed">
+                   {entry.content}
+                 </p>
               </div>
             </div>
           ))
