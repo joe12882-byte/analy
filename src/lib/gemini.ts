@@ -60,8 +60,8 @@ MODE: ${trustMode === 'formal' ? "Polite service English." : "Social/Slang allow
 CONTEXT: ${dbContext}`;
 
     const response = await withTimeout(ai.models.generateContent({
-      model: "gemini-2.5-flash",
-      contents: `"${phrase}"`,
+      model: "gemini-1.5-flash",
+      contents: [{ role: 'user', parts: [{ text: phrase }] }],
       config: {
         systemInstruction: system,
         responseMimeType: "application/json",
@@ -77,14 +77,28 @@ CONTEXT: ${dbContext}`;
             phonetic_tactic: { type: Type.STRING },
             learning_tip: { type: Type.STRING },
             mode_notes: { type: Type.STRING },
+            keywords: { 
+              type: Type.ARRAY, 
+              items: { 
+                type: Type.OBJECT, 
+                properties: {
+                  word: { type: Type.STRING },
+                  translation: { type: Type.STRING }
+                }
+              }
+            },
             next_steps: { type: Type.ARRAY, items: { type: Type.STRING } },
           },
           required: ["is_navigation", "assistant_reply", "corrected_en", "translation_es", "phonetic_tactic", "learning_tip", "mode_notes"]
         }
       }
-    }), 12000); // 12 seconds max to encourage speed
+    }), 25000); 
 
-    const parsed = JSON.parse(response.text?.replace(/```json\n?/g, '').replace(/```/g, '').trim() || '{}');
+    const text = (response as any).text || "";
+    const parsed = JSON.parse(text.replace(/```json\n?/g, '').replace(/```/g, '').trim() || '{}');
+    
+    // Ensure arrays exist
+    if (!parsed.next_steps) parsed.next_steps = [];
     
     // Guardar en caché local temporal
     ALREADY_ANALYZED.set(cacheKey, parsed);
@@ -92,7 +106,17 @@ CONTEXT: ${dbContext}`;
     return parsed;
   } catch (error: any) {
     console.error("Gemini Error:", error);
-    return { errorMsg: String(error?.message || error) };
+    return { 
+      errorMsg: String(error?.message || error),
+      is_navigation: false,
+      assistant_reply: "",
+      corrected_en: "",
+      translation_es: "",
+      phonetic_tactic: "",
+      learning_tip: "Error de conexión con Anali.",
+      mode_notes: "",
+      next_steps: []
+    };
   }
 }
 
@@ -119,8 +143,8 @@ Rules:
     const payload = JSON.stringify({ history: history.slice(-8), user: userText });
 
     const response = await withTimeout(ai.models.generateContent({
-      model: "gemini-2.5-flash",
-      contents: `Act according to your role based on this input: ${payload}`,
+      model: "gemini-1.5-flash",
+      contents: [{ role: 'user', parts: [{ text: `Act according to your role based on this input: ${payload}` }] }],
       config: {
         systemInstruction: system,
         responseMimeType: "application/json",
@@ -136,10 +160,17 @@ Rules:
           required: ["reply_en", "reply_es", "phonetic_tactic", "emotion"]
         }
       }
-    }), 12000);
-    return JSON.parse(response.text?.replace(/```json\n?/g, '').replace(/```/g, '').trim() || '{}');
+    }), 20000); 
+    const text = (response as any).text || "";
+    return JSON.parse(text.replace(/```json\n?/g, '').replace(/```/g, '').trim() || '{}');
   } catch (e: any) {
-    return { errorMsg: String(e) };
+    return { 
+      errorMsg: String(e),
+      reply_en: "Sorry, I lost my train of thought.",
+      reply_es: "Perdón, me distraje un momento.",
+      phonetic_tactic: "sóri, ái lost mái tréin ov zot",
+      emotion: "confused"
+    };
   }
 }
 
@@ -149,8 +180,8 @@ export async function gradeRoleplay(profession: string, scenarioRole: string, us
 IMPORTANT INSTRUCTION: ALL your feedback (strengths, improvements, tips, anali_reminder) MUST be written strictly in SPANISH to ensure the student understands the pedagogical feedback perfectly.`;
     
     const response = await withTimeout(ai.models.generateContent({
-      model: "gemini-2.5-flash",
-      contents: `Grade these turns: ${JSON.stringify(userTurns)}`,
+      model: "gemini-1.5-flash",
+      contents: [{ role: 'user', parts: [{ text: `Grade these turns: ${JSON.stringify(userTurns)}` }] }],
       config: {
         systemInstruction: system,
         responseMimeType: "application/json",
@@ -182,10 +213,26 @@ IMPORTANT INSTRUCTION: ALL your feedback (strengths, improvements, tips, anali_r
           required: ["scores", "overall", "strengths", "improvements", "corrected_examples"]
         }
       }
-    }), 20000);
-    return JSON.parse(response.text?.replace(/```json\n?/g, '').replace(/```/g, '').trim() || '{}');
+    }), 25000); 
+    const text = (response as any).text || "";
+    const data = JSON.parse(text.replace(/```json\n?/g, '').replace(/```/g, '').trim() || '{}');
+    return {
+      scores: data.scores || { clarity: 0, politeness: 0, confidence: 0, accuracy: 0 },
+      overall: data.overall || 0,
+      strengths: data.strengths || [],
+      improvements: data.improvements || [],
+      corrected_examples: data.corrected_examples || [],
+      anali_reminder: data.anali_reminder || ""
+    };
   } catch (e) {
-    return null;
+    return {
+      scores: { clarity: 0, politeness: 0, confidence: 0, accuracy: 0 },
+      overall: 0,
+      strengths: ["Error al calificar"],
+      improvements: ["Inténtalo de nuevo"],
+      corrected_examples: [],
+      anali_reminder: "Hubo un problema procesando tu nota."
+    };
   }
 }
 
@@ -198,8 +245,8 @@ export async function gradeShadow(targetEn: string, userTranscript: string) {
 IMPORTANT INSTRUCTION: ALL your feedback (tips, encouragement, anali_reminder) MUST be written strictly in SPANISH so the student clearly understands what to improve.`;
     
     const response = await withTimeout(ai.models.generateContent({
-      model: "gemini-2.5-flash",
-      contents: `Format JSON strictly. Target: "${targetEn}". Transcript heard: "${userTranscript}"`,
+      model: "gemini-1.5-flash",
+      contents: [{ role: 'user', parts: [{ text: `Format JSON strictly. Target: "${targetEn}". Transcript heard: "${userTranscript}"` }] }],
       config: {
         systemInstruction: system,
         responseMimeType: "application/json",
@@ -219,33 +266,47 @@ IMPORTANT INSTRUCTION: ALL your feedback (tips, encouragement, anali_reminder) M
           required: ["accuracy", "overall", "matched_words", "missed_words", "tips", "encouragement"]
         }
       }
-    }), 12000);
-    return JSON.parse(response.text?.replace(/```json\n?/g, '').replace(/```/g, '').trim() || '{}');
+    }), 20000); 
+    const text = (response as any).text || "";
+    const data = JSON.parse(text.replace(/```json\n?/g, '').replace(/```/g, '').trim() || '{}');
+    return {
+      accuracy: data.accuracy || 0,
+      fluency: data.fluency || 0,
+      overall: data.overall || 0,
+      matched_words: data.matched_words || [],
+      missed_words: data.missed_words || [],
+      extra_words: data.extra_words || [],
+      tips: data.tips || [],
+      encouragement: data.encouragement || "¡Sigue practicando!",
+      anali_reminder: data.anali_reminder || ""
+    };
   } catch (e) {
-    return null;
+    return {
+      accuracy: 0,
+      overall: 0,
+      matched_words: [],
+      missed_words: [],
+      tips: ["Error de red"],
+      encouragement: "No pude evaluarte hoy.",
+      anali_reminder: ""
+    };
   }
 }
 
 // ============================================
-// 4. VISION AR (OBJETOS EN CÁMARA)
+// 4. VISION AR (OBJETOS Y TEXTO EN CÁMARA)
 // ============================================
 export async function analyzeToolImage(base64Image: string) {
   try {
-    const system = `You are Anali's AR Vision Coach. You receive a single image snapshot taken by a Spanish-speaking user learning English.
-Your job: detect the most useful **real, visible everyday objects or tools** in the image that would help this person learn practical English vocabulary.
-Rules:
-1) Detect between 1 and 5 distinct objects.
-2) bbox: normalized bounding box {"x","y","w","h"} in 0-1 coords where (0,0) is top-left.
-3) Skip useless background things (walls, sky, blur).
-4) 'phonetic_tactic' must be Spanish-ear phonetic.
-5) 'example_en' should be a useful daily phrase using the object.`;
+    const system = `You are Anali's AR Vision Coach. Detect the most useful real, visible everyday objects or tools in the image.
+Return JSON with objects array. bbox: {x,y,w,h} normalized 0-1.`;
 
     const response = await withTimeout(ai.models.generateContent({
-      model: "gemini-2.5-flash",
-      contents: [
-        { inlineData: { data: base64Image.split('base64,')[1] || base64Image, mimeType: "image/jpeg" } },
-        { text: `Detect teachable everyday objects in this image.` }
-      ],
+      model: "gemini-1.5-flash",
+      contents: [{ role: 'user', parts: [
+        { text: `Detect objects.` }, 
+        { inlineData: { data: base64Image.split('base64,')[1] || base64Image, mimeType: "image/jpeg" } }
+      ] }],
       config: {
         systemInstruction: system,
         responseMimeType: "application/json",
@@ -274,10 +335,60 @@ Rules:
         }
       }
     }), 25000);
-    return JSON.parse(response.text?.replace(/```json\n?/g, '').replace(/```/g, '').trim() || '{}');
+    const text = (response as any).text || "";
+    return JSON.parse(text.replace(/```json\n?/g, '').replace(/```/g, '').trim() || '{}');
   } catch (error) {
     console.error("AR Vision Gemini Error:", error);
     return { objects: [] };
+  }
+}
+
+export async function translateImageAR(base64Image: string, occupation: string = 'general') {
+  try {
+    const system = `You are Analy, the AR Translation Engine. 
+Detect all readable ENGLISH text in the image. For each text block, provide a professional translation and its bounding box.
+Role: ${occupation} contextual English.
+IMPORTANT: Return strictly JSON. bbox: {x,y,w,h} normalized 0-1.
+'translation_es' must be natural Spanish. 'phonetic_tactic' Spanish-ear phonetic.`;
+
+    const response = await withTimeout(ai.models.generateContent({
+      model: "gemini-1.5-flash",
+      contents: [{ role: 'user', parts: [
+        { text: `Scan and translate text.` }, 
+        { inlineData: { data: base64Image.split('base64,')[1] || base64Image, mimeType: "image/jpeg" } }
+      ] }],
+      config: {
+        systemInstruction: system,
+        responseMimeType: "application/json",
+        responseSchema: {
+          type: Type.OBJECT,
+          properties: {
+            blocks: {
+              type: Type.ARRAY,
+              items: {
+                type: Type.OBJECT,
+                properties: {
+                  original_en: { type: Type.STRING },
+                  translation_es: { type: Type.STRING },
+                  phonetic_tactic: { type: Type.STRING },
+                  learning_tip: { type: Type.STRING },
+                  bbox: {
+                    type: Type.OBJECT,
+                    properties: { x: { type: Type.NUMBER }, y: { type: Type.NUMBER }, w: { type: Type.NUMBER }, h: { type: Type.NUMBER } }
+                  }
+                },
+                required: ["original_en", "translation_es", "bbox"]
+              }
+            }
+          }
+        }
+      }
+    }), 30000);
+    const text = (response as any).text || "";
+    return JSON.parse(text.replace(/```json\n?/g, '').replace(/```/g, '').trim() || '{}');
+  } catch (error) {
+    console.error("AR Translate Gemini Error:", error);
+    return { blocks: [] };
   }
 }
 
@@ -296,8 +407,8 @@ Rules:
 - Infer profession from content; use "general" if unclear.`;
 
     const response = await withTimeout(ai.models.generateContent({
-      model: "gemini-2.5-flash",
-      contents: `Extract pedagogical units from: ${text.substring(0, 10000)}`,
+      model: "gemini-1.5-flash",
+      contents: [{ role: 'user', parts: [{ text: `Extract units.` }] }],
       config: {
         systemInstruction: system,
         responseMimeType: "application/json",
@@ -322,7 +433,8 @@ Rules:
         }
       }
     }), 40000);
-    const data = JSON.parse(response.text?.replace(/```json\n?/g, '').replace(/```/g, '').trim() || '{}');
+    const resultText = (response as any).text || "";
+    const data = JSON.parse(resultText.replace(/```json\n?/g, '').replace(/```/g, '').trim() || '{}');
     return data.candidates || [];
   } catch (err) {
     console.error("Classifier error:", err);
@@ -359,8 +471,16 @@ All pedagogical feedback, tips, and descriptions MUST be exclusively in SPANISH.
     if (transcription) textPrompt += ` \nTranscription/Context provided: "${transcription}"`;
 
     const response = await withTimeout(ai.models.generateContent({
-      model: "gemini-2.5-flash",
-      contents: [ ...imageParts, { text: textPrompt } ],
+      model: "gemini-1.5-flash",
+      contents: [{
+        role: 'user',
+        parts: [
+          ...framesBase64.map(b64 => ({
+            inlineData: { data: b64.split('base64,')[1] || b64, mimeType: "image/jpeg" }
+          })),
+          { text: textPrompt }
+        ]
+      }],
       config: {
         systemInstruction: system,
         responseMimeType: "application/json",
@@ -406,7 +526,8 @@ All pedagogical feedback, tips, and descriptions MUST be exclusively in SPANISH.
       }
     }), 45000);
 
-    return JSON.parse(response.text?.replace(/```json\n?/g, '').replace(/```/g, '').trim() || '{}');
+    const resultText = (response as any).text || "";
+    return JSON.parse(resultText.replace(/```json\n?/g, '').replace(/```/g, '').trim() || '{}');
   } catch (err) {
     console.error("Video Analysis Error:", err);
     return null;

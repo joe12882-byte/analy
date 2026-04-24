@@ -1,9 +1,12 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { Youtube, Search, ArrowRight, Loader2, Save, Trash2, Database, Users, Shield, Calendar, Link2, Sparkles, Server, FileVideo, UploadCloud, Bell } from 'lucide-react';
-import { extractFromYouTube, analyzeVideoMethodology } from '../lib/gemini';
+import { doc, updateDoc, serverTimestamp, collection, query, getDocs, orderBy, where } from 'firebase/firestore';
+import { db } from '../lib/firebase';
+import { analyzeVideoMethodology, extractFromYouTube } from '../lib/gemini';
 import { CurationEntry, UserProfile, LearningUnit } from '../types';
 import AdminVault from './AdminVault';
 import { speak as globalSpeak } from '../lib/speech';
+import { safeStorage } from '../lib/storage';
 
 export default function AdminCurador() {
   const [input, setInput] = useState('');
@@ -18,15 +21,35 @@ export default function AdminCurador() {
   const [savedEntries, setSavedEntries] = useState<CurationEntry[]>([]);
   const [users, setUsers] = useState<UserProfile[]>([]);
   const [activeTab, setActiveTab] = useState<'intel' | 'users' | 'vault'>('intel');
+  const [adoptMethodology, setAdoptMethodology] = useState(true);
 
   useEffect(() => {
     // Admin uses a global-like stash for processing
-    const savedIntel = localStorage.getItem('analy_global_intel');
-    if (savedIntel) setSavedEntries(JSON.parse(savedIntel));
+    const savedIntel = safeStorage.getItem('analy_global_intel');
+    if (savedIntel) {
+      try {
+        setSavedEntries(JSON.parse(savedIntel));
+      } catch {}
+    }
 
-    const globalUsers = localStorage.getItem('analy_global_users');
-    if (globalUsers) setUsers(JSON.parse(globalUsers));
-  }, []);
+    const fetchUsers = async () => {
+      try {
+        const q = query(collection(db, 'users'), orderBy('createdAt', 'desc'));
+        const snap = await getDocs(q);
+        const userList = snap.docs.map(doc => ({
+          id: doc.id,
+          ...doc.data()
+        })) as UserProfile[];
+        setUsers(userList);
+      } catch (err) {
+        console.error("Error fetching users:", err);
+      }
+    };
+
+    if (activeTab === 'users') {
+      fetchUsers();
+    }
+  }, [activeTab]);
 
   const handleCurate = async () => {
     if (!input) return;
@@ -39,9 +62,15 @@ export default function AdminCurador() {
   const handleYTExtract = async () => {
     if (!ytUrl) return;
     setLoading(true);
-    const data = await extractFromYouTube(ytUrl);
-    setResults(data);
-    setLoading(false);
+    try {
+      const data = await extractFromYouTube(ytUrl);
+      setResults(data);
+    } catch (err) {
+      console.error("YouTube Extraction Error:", err);
+      alert("Error al extraer datos de YouTube.");
+    } finally {
+      setLoading(false);
+    }
   };
 
   const handleVideoUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -116,56 +145,48 @@ export default function AdminCurador() {
     }
   };
 
-  const saveToGlobalStore = (item: any) => {
-    // Save to the universal scripts collection (simulated global DB)
-    const existingScripts = JSON.parse(localStorage.getItem('analy_universal_scripts') || '[]');
-    const newScript: LearningUnit = {
-      id: crypto.randomUUID(),
-      profession_id: item.profession || 'general',
-      category: item.category || 'professional',
-      phrase_es: item.phrase_es || item.spanish,
-      phrase_en: item.phrase_en || item.english,
-      phonetic_tactic: item.phonetic_tactic || item.pronunciation,
-      learning_tip: item.learning_tip,
-      learning_tips: item.learning_tip ? [item.learning_tip] : (item.learning_tips || []),
-      grammar_tags: item.grammar_tags || [],
-      grammar_tag: (item.grammar_tags && item.grammar_tags[0]) || item.grammar_tag || 'Intel Reciente',
-      difficulty: item.difficulty || 3
-    };
+  const saveToGlobalStore = async (item: any) => {
+    try {
+      const phraseEn = item.phrase_en || item.english;
+      if (!phraseEn) return;
 
-    localStorage.setItem('analy_universal_scripts', JSON.stringify([newScript, ...existingScripts]));
-    
-    // Also save to curation history for the master
-    const newEntry: CurationEntry = {
-      id: crypto.randomUUID(),
-      topic: newScript.phrase_en.substring(0, 30),
-      content: newScript.phrase_es,
-      category: newScript.category,
-      sourceType: 'video'
-    };
-    const updatedIntel = [newEntry, ...savedEntries];
-    setSavedEntries(updatedIntel);
-    localStorage.setItem('analy_global_intel', JSON.stringify(updatedIntel));
-    
-    alert('Intel Inyectado en la Base de Datos Global');
+      const q = query(collection(db, 'learning_units'), where('phrase_en', '==', phraseEn));
+      const snap = await getDocs(q);
+      
+      if (!snap.empty) {
+        alert(`La frase "${phraseEn}" ya existe en la biblioteca. Evitando duplicado.`);
+        return;
+      }
+
+      const newScript: Partial<LearningUnit> = {
+        profession_id: item.profession_id || item.profession || 'general',
+        category: item.category || 'professional',
+        phrase_es: item.phrase_es || item.spanish || '',
+        phrase_en: phraseEn,
+        phonetic_tactic: item.phonetic_tactic || item.pronunciation || '',
+        learning_tip: item.learning_tip || '',
+        learning_tips: item.learning_tips || (item.learning_tip ? [item.learning_tip] : []),
+        grammar_tags: item.grammar_tags || [],
+        grammar_tag: item.grammar_tag || (item.grammar_tags && item.grammar_tags[0]) || 'Intel Reciente',
+        difficulty: item.difficulty || 3,
+        methodology_style: adoptMethodology ? 'extracted' : 'standard'
+      };
+
+      const { addDoc } = await import('firebase/firestore');
+      await addDoc(collection(db, 'learning_units'), newScript);
+      
+      alert('¡Intel Inyectado exitosamente en Firestore!');
+    } catch (err) {
+      console.error("Error saving unit:", err);
+      alert('Error al guardar. Revisa la consola.');
+    }
   };
 
   const deleteEntry = (id: string) => {
     const updated = savedEntries.filter(e => e.id !== id);
     setSavedEntries(updated);
-    localStorage.setItem('analy_global_intel', JSON.stringify(updated));
+    safeStorage.setItem('analy_global_intel', JSON.stringify(updated));
   };
-
-  if (activeTab === 'vault') {
-    return (
-      <div className="w-full">
-         <div className="p-4 flex gap-2 border-b border-white/10">
-           <button onClick={() => setActiveTab('intel')} className="text-xs font-black uppercase text-gray-500 hover:text-white px-4 py-2 border border-white/10 rounded-lg">Volver a Intel</button>
-         </div>
-         <AdminVault />
-      </div>
-    );
-  }
 
   return (
     <div className="p-6 space-y-8 pb-32">
@@ -201,7 +222,11 @@ export default function AdminCurador() {
         </div>
       </div>
 
-      {activeTab === 'intel' ? (
+      {activeTab === 'vault' ? (
+        <div className="w-full">
+           <AdminVault />
+        </div>
+      ) : activeTab === 'intel' ? (
         <>
           <div className="space-y-6">
             <video ref={videoRef} className="hidden" crossOrigin="anonymous" playsInline muted />
@@ -258,6 +283,20 @@ export default function AdminCurador() {
                </div>
                
                <p className="text-xs text-slate-500 mb-4 font-medium">Sube un video enseñando una lección técnica. Analí examinará cómo explicas, absorberá la métrica (ritmo/ejemplos) y diseñará guiones automáticamente con ese estilo.</p>
+
+               {/* Opción de Metodología Toggle */}
+               <div className="flex items-center gap-3 p-3 bg-teal-100/50 rounded-2xl border border-teal-200 mb-4 animate-in fade-in zoom-in-95 duration-500">
+                 <div 
+                   onClick={() => setAdoptMethodology(!adoptMethodology)}
+                   className={`w-10 h-6 rounded-full relative transition-all cursor-pointer shadow-inner ${adoptMethodology ? 'bg-teal-500' : 'bg-slate-300'}`}
+                 >
+                   <div className={`absolute top-1 w-4 h-4 bg-white rounded-full shadow-md transition-all ${adoptMethodology ? 'left-5' : 'left-1'}`} />
+                 </div>
+                 <div className="flex flex-col">
+                   <span className="text-[11px] font-black text-slate-800 uppercase tracking-tight leading-none">Adoptar esta Metodología</span>
+                   <span className="text-[10px] text-teal-600 font-bold mt-1">Anali absorberá este ritmo de enseñanza.</span>
+                 </div>
+               </div>
 
                <div className="relative border-2 border-dashed border-indigo-100 bg-indigo-50/30 rounded-2xl p-8 hover:bg-indigo-50 transition-colors text-center">
                  <input 
@@ -358,7 +397,7 @@ export default function AdminCurador() {
               </div>
 
               <div className="grid gap-4 md:grid-cols-2">
-                {results.map((item: any, i: number) => (
+                {(results || []).map((item: any, i: number) => (
                   <div key={i} className="bg-white rounded-3xl p-6 shadow-sm border border-slate-100 flex flex-col justify-between">
                     <div className="flex items-center justify-between mb-4">
                       <div className="px-3 py-1 bg-amber-100 text-amber-700 rounded-full text-xs font-bold capitalize">
@@ -446,37 +485,55 @@ export default function AdminCurador() {
                 <tr className="border-b border-slate-200">
                   <th className="py-4 text-xs font-bold text-slate-500 uppercase">Estudiante</th>
                   <th className="py-4 text-xs font-bold text-slate-500 uppercase">Profesión</th>
-                  <th className="py-4 text-xs font-bold text-slate-500 uppercase">Status</th>
+                  <th className="py-4 text-xs font-bold text-slate-500 uppercase hover:text-teal-500 cursor-help transition-colors" title="Clave técnica para soporte">Clave</th>
+                  <th className="py-4 text-xs font-bold text-slate-500 uppercase">Conversas</th>
+                  <th className="py-4 text-xs font-bold text-slate-500 uppercase">Biblioteca</th>
+                  <th className="py-4 text-xs font-bold text-slate-500 uppercase">Activo</th>
                   <th className="py-4 text-xs font-bold text-slate-500 uppercase text-right">Registro</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100">
-                {users.map((user) => (
-                  <tr key={user.id} className="group hover:bg-slate-50 transition-colors">
+                {users.map((u) => (
+                  <tr key={u.id} className="group hover:bg-slate-50 transition-colors">
                     <td className="py-5">
                       <div className="flex flex-col">
-                        <span className="text-sm font-bold text-slate-800">{user.name}</span>
-                        <span className="text-xs text-slate-500 font-medium">{user.email}</span>
+                        <div className="flex items-center gap-1.5">
+                           <span className="text-sm font-bold text-slate-800">{u.displayName || `${u.firstName || ''} ${u.lastName || ''}` || 'Sin Nombre'}</span>
+                           {u.role === 'master' && <Shield size={12} className="text-amber-500" />}
+                        </div>
+                        <span className="text-[10px] text-slate-500 font-medium tracking-tight">{u.email}</span>
                       </div>
                     </td>
                     <td className="py-5">
-                      <span className="text-xs font-bold bg-slate-100 text-slate-600 px-3 py-1 rounded-full capitalize">
-                        {user.occupation}
+                      <span className="text-[10px] font-bold bg-slate-100 text-slate-600 px-3 py-1 rounded-full capitalize">
+                        {u.occupation || 'Gral'}
                       </span>
                     </td>
                     <td className="py-5">
-                      <div className="flex items-center gap-1.5">
-                        <Shield size={14} className={user.role === 'master' ? 'text-amber-500' : 'text-slate-400'} />
-                        <span className={`text-xs font-bold uppercase ${user.role === 'master' ? 'text-amber-600' : 'text-slate-500'}`}>
-                          {user.role}
-                        </span>
-                      </div>
+                      <span className="text-xs font-mono font-bold text-slate-400 bg-slate-100/50 px-2 py-0.5 rounded border border-slate-200">
+                        {u.support_code || '---'}
+                      </span>
+                    </td>
+                    <td className="py-5">
+                      <span className="text-xs font-bold text-teal-600 bg-teal-50 px-2 py-0.5 rounded-md">
+                        {u.conversations_count || 0}
+                      </span>
+                    </td>
+                    <td className="py-5">
+                      <span className="text-xs font-bold text-indigo-600 bg-indigo-50 px-2 py-0.5 rounded-md">
+                        {u.saved_objects_count || 0}
+                      </span>
+                    </td>
+                    <td className="py-5">
+                      <span className="text-[10px] font-medium text-slate-500">
+                        {u.last_login ? (u.last_login.toDate ? u.last_login.toDate() : new Date(u.last_login)).toLocaleDateString() : '--'}
+                      </span>
                     </td>
                     <td className="py-5 text-right">
-                      <div className="flex items-center justify-end gap-1.5 text-slate-500">
-                        <Calendar size={14} />
-                        <span className="text-xs font-medium">
-                          {user.registration_date ? new Date(user.registration_date).toLocaleDateString() : 'N/A'}
+                      <div className="flex items-center justify-end gap-1.5 text-slate-400">
+                        <Calendar size={12} />
+                        <span className="text-[10px] font-medium">
+                          {u.createdAt ? (u.createdAt.toDate ? u.createdAt.toDate() : new Date(u.createdAt)).toLocaleDateString() : 'N/A'}
                         </span>
                       </div>
                     </td>

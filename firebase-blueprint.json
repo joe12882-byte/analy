@@ -79,6 +79,20 @@
         "createdAt": { "type": "string", "format": "timestamp" }
       },
       "required": ["sessionId", "role", "content", "createdAt"]
+    },
+    "LibraryItem": {
+      "title": "LibraryItem",
+      "description": "User saved tactical information",
+      "type": "object",
+      "properties": {
+        "topic": { "type": "string" },
+        "content": { "type": "string" },
+        "category": { "type": "string" },
+        "sourceType": { "type": "string" },
+        "original": { "type": "string" },
+        "date": { "type": "string", "format": "timestamp" }
+      },
+      "required": ["topic", "content", "category", "date"]
     }
   },
   "firestore": {
@@ -97,6 +111,18 @@
     "/users/{userId}": {
       "schema": { "$ref": "#/entities/User" },
       "description": "User profiles"
+    },
+    "/users/{userId}/library/{itemId}": {
+      "schema": { "$ref": "#/entities/LibraryItem" },
+      "description": "Personal library items for each user"
+    },
+    "/roleplay_sessions/{sessionId}": {
+       "schema": "object",
+       "description": "Historical roleplay sessions for students"
+    },
+    "/shadow_attempts/{attemptId}": {
+       "schema": "object",
+       "description": "Historical pronunciation practice attempts"
     },
     "/sessions/{sessionId}": {
       "schema": { "$ref": "#/entities/ChatSession" },

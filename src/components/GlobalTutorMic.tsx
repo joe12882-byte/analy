@@ -6,6 +6,7 @@ import { softenPhrase } from '../lib/gemini';
 import { useAuth } from './AuthProvider';
 
 import { speak } from '../lib/speech';
+import { safeStorage } from '../lib/storage';
 
 export default function GlobalTutorMic() {
   const location = useLocation();
@@ -36,24 +37,40 @@ export default function GlobalTutorMic() {
     const recognition = new SpeechRecognition();
     // Prefer Spanish to understand the user's doubt, but allow English
     recognition.lang = 'es-ES';
-    recognition.continuous = false; // One-shot
-    recognition.interimResults = false;
+    recognition.continuous = true; 
+    recognition.interimResults = true;
+
+    let finalTranscript = '';
+    let silenceTimer: any = null;
 
     recognition.onstart = () => {
       setIsListening(true);
     };
 
-    recognition.onresult = async (event: any) => {
-      let transcript = '';
+    recognition.onresult = (event: any) => {
+      let interimTranscript = '';
+      
       for (let i = event.resultIndex; i < event.results.length; ++i) {
         if (event.results[i].isFinal) {
-          transcript += event.results[i][0].transcript;
+          finalTranscript += event.results[i][0].transcript + ' ';
+        } else {
+          interimTranscript += event.results[i][0].transcript;
         }
       }
+
+      // Reset silence timer on every result
+      if (silenceTimer) clearTimeout(silenceTimer);
       
-      if (transcript.trim().length > 0) {
-        setIsListening(false); // Stop UI listening immediately
-        await processQuery(transcript);
+      // If we have some content, wait for a bit of silence before processing
+      if (finalTranscript.trim().length > 0 || interimTranscript.trim().length > 0) {
+        silenceTimer = setTimeout(() => {
+          const fullText = (finalTranscript + interimTranscript).trim();
+          if (fullText.length > 2) {
+             recognition.stop();
+             setIsListening(false);
+             processQuery(fullText);
+          }
+        }, 1800); // 1.8 seconds of silence to consider the thought finished
       }
     };
 
@@ -80,7 +97,7 @@ export default function GlobalTutorMic() {
   const processQuery = async (phrase: string) => {
     setIsProcessing(true);
     try {
-      const trustMode = (localStorage.getItem('analy_trust_mode') || 'formal') as 'formal' | 'social';
+      const trustMode = (safeStorage.getItem('analy_trust_mode') || 'formal') as 'formal' | 'social';
       const output = await softenPhrase(phrase, profile?.occupation, 'general', 'tutor', trustMode);
       if (output && !output.errorMsg) {
         
@@ -90,7 +107,7 @@ export default function GlobalTutorMic() {
           
           // Pre-configurar el escenario de roleplay si existe
           if (output.nav_scenario) {
-            localStorage.setItem('analy_nav_scenario', output.nav_scenario);
+            safeStorage.setItem('analy_nav_scenario', output.nav_scenario);
           }
 
           // Mapear rutas de Gemini a las rutas reales de la app

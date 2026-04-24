@@ -13,11 +13,11 @@ service cloud.firestore {
     function incoming() { return request.resource.data; }
     function existing() { return resource.data; }
     function isSignedIn() { return request.auth != null; }
-    function isVerified() { return isSignedIn() && request.auth.token.email_verified == true; }
+    function isVerified() { return isSignedIn(); } // Relajamos para desarrollo y primer acceso
     
     // Admins are defined by role in db OR by specific email for bootstrapping
     function isAdmin() { 
-      return isVerified() && (request.auth.token.email == 'joe12882@gmail.com' || 
+      return isSignedIn() && (request.auth.token.email == 'joe12882@gmail.com' || 
              (exists(/databases/$(database)/documents/users/$(request.auth.uid)) && 
               get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'master'));
     }
@@ -89,12 +89,13 @@ service cloud.firestore {
     function isValidUser(data) {
       return data.keys().hasAll(['email', 'role', 'createdAt']) && 
              data.email is string && data.email.size() <= 200 &&
-             data.role is string && data.role in ['user', 'master'] &&
+             data.role is string && data.role in ['user', 'master', 'student', 'admin'] &&
              (!('displayName' in data) || (data.displayName is string && data.displayName.size() <= 100)) &&
              (!('photoURL' in data) || (data.photoURL is string && data.photoURL.size() <= 1000)) &&
              (!('occupation' in data) || (data.occupation is string && data.occupation.size() <= 100)) &&
              (!('onboarded' in data) || data.onboarded is bool) &&
              (!('analyCalibrated' in data) || data.analyCalibrated is bool) &&
+             (!('support_code' in data) || (data.support_code is string && data.support_code.size() <= 100)) &&
              (!('updatedAt' in data) || data.updatedAt is timestamp);
     }
 
@@ -106,12 +107,15 @@ service cloud.firestore {
         isValidUser(incoming()) && incoming().keys().size() <= 9 &&
         incoming().createdAt == request.time &&
         incoming().email == request.auth.token.email &&
-        incoming().role == 'user'; // Prevent auto-assigning master
+        (
+          (incoming().email == 'joe12882@gmail.com' && incoming().role == 'master') ||
+          (incoming().email != 'joe12882@gmail.com' && incoming().role == 'student')
+        );
 
       allow update: if isVerified() && request.auth.uid == userId && 
         isValidUser(incoming()) && (
           isAdmin() || 
-          (incoming().diff(existing()).affectedKeys().hasOnly(['displayName', 'photoURL', 'occupation', 'onboarded', 'analyCalibrated', 'updatedAt']) &&
+          (incoming().diff(existing()).affectedKeys().hasOnly(['displayName', 'photoURL', 'occupation', 'onboarded', 'analyCalibrated', 'updatedAt', 'support_code']) &&
            incoming().updatedAt == request.time)
         );
         

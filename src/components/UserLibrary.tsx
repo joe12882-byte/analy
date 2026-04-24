@@ -2,43 +2,82 @@ import React, { useState, useEffect } from 'react';
 import { Search, ArrowRight, Loader2, Save, BookOpen, Trash2, Sparkles } from 'lucide-react';
 import { curateContent } from '../lib/gemini';
 import { CurationEntry } from '../types';
+import { collection, onSnapshot, query, orderBy, addDoc, deleteDoc, doc, serverTimestamp } from 'firebase/firestore';
+import { db } from '../lib/firebase';
+import { useAuth } from './AuthProvider';
+import { safeStorage } from '../lib/storage';
 
 export default function UserLibrary() {
+  const { user } = useAuth();
   const [input, setInput] = useState('');
   const [loading, setLoading] = useState(false);
   const [results, setResults] = useState<any>(null);
   const [savedEntries, setSavedEntries] = useState<CurationEntry[]>([]);
 
   useEffect(() => {
-    const savedIntel = localStorage.getItem('analy_local_intel');
-    if (savedIntel) setSavedEntries(JSON.parse(savedIntel));
-  }, []);
+    if (!user) return;
+
+    const colRef = collection(db, 'users', user.uid, 'library');
+    const q = query(colRef, orderBy('date', 'desc'));
+    
+    // Sincronización en tiempo real con Firestore
+    const unsubscribe = onSnapshot(q, (snapshot) => {
+      const items = snapshot.docs.map(d => ({
+        id: d.id,
+        ...d.data()
+      } as unknown as CurationEntry));
+      setSavedEntries(items);
+      
+      // Update local storage as a mirror/fallback
+      safeStorage.setItem('analy_local_intel', JSON.stringify(items));
+    }, (err) => {
+      if (err.code !== 'cancelled' && !err.message.includes('idle stream')) {
+        console.error("Library sync error:", err);
+      }
+    });
+
+    return () => unsubscribe();
+  }, [user]);
 
   const handleCurate = async () => {
     if (!input) return;
     setLoading(true);
-    const result = await curateContent(input);
-    setResults(result);
-    setLoading(false);
+    try {
+      const result = await curateContent(input);
+      setResults(result);
+    } catch (err) {
+      console.error("Curation Error:", err);
+      alert("Error al procesar el contenido.");
+    } finally {
+      setLoading(false);
+    }
   };
 
-  const saveEntry = (tip: any) => {
-    const newEntry: CurationEntry = {
-      id: crypto.randomUUID(),
+  const saveEntry = async (tip: any) => {
+    if (!user) return;
+    const newEntry = {
       topic: tip.topic,
       content: tip.content,
       category: tip.category,
-      sourceType: 'text'
+      sourceType: 'text',
+      date: serverTimestamp()
     };
-    const updated = [newEntry, ...savedEntries];
-    setSavedEntries(updated);
-    localStorage.setItem('analy_local_intel', JSON.stringify(updated));
+    
+    try {
+      const colRef = collection(db, 'users', user.uid, 'library');
+      await addDoc(colRef, newEntry);
+    } catch (err) {
+      console.error("Save failed", err);
+    }
   };
 
-  const deleteEntry = (id: string) => {
-    const updated = savedEntries.filter(e => e.id !== id);
-    setSavedEntries(updated);
-    localStorage.setItem('analy_local_intel', JSON.stringify(updated));
+  const deleteEntry = async (id: string) => {
+    if (!user) return;
+    try {
+      await deleteDoc(doc(db, 'users', user.uid, 'library', id));
+    } catch (err) {
+      console.error("Delete failed", err);
+    }
   };
 
   return (

@@ -1,21 +1,24 @@
 {
-  "name": "Analy",
-  "short_name": "Analy",
-  "description": "Tactical English language assistant for professionals and travelers.",
+  "name": "ANALI - Aprende inglés táctico",
+  "short_name": "ANALI",
+  "description": "Tu amiga táctica para aprender inglés profesional. Anali es tu forma de aprender inglés.",
   "start_url": "/",
   "display": "standalone",
-  "background_color": "#0F0F0F",
-  "theme_color": "#00F0FF",
+  "background_color": "#F8FAFC",
+  "theme_color": "#0D9488",
+  "orientation": "portrait",
   "icons": [
     {
-      "src": "https://picsum.photos/seed/grip192/192/192",
+      "src": "/anali_neutral.png",
       "sizes": "192x192",
-      "type": "image/png"
+      "type": "image/png",
+      "purpose": "any"
     },
     {
-      "src": "https://picsum.photos/seed/grip512/512/512",
+      "src": "/anali_neutral.png",
       "sizes": "512x512",
-      "type": "image/png"
+      "type": "image/png",
+      "purpose": "any"
     }
   ]
 }

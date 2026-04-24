@@ -35,6 +35,7 @@ export interface LearningUnit {
   grammar_tags?: string[]; // Nuevo modelo
   grammar_tag?: string;
   difficulty: number | string; // 1 to 5 or 'beginner', 'intermediate'
+  methodology_style?: string;
 }
 
 export interface IntelSponge {
@@ -50,6 +51,8 @@ export interface UserProfile {
   id?: string;
   uid?: string;
   displayName?: string;
+  firstName?: string;
+  lastName?: string;
   name?: string; // legacy support
   photoURL?: string;
   occupation?: string;
@@ -57,9 +60,13 @@ export interface UserProfile {
   registration_date?: string; // legacy support
   createdAt?: any;
   updatedAt?: any;
-  role: 'user' | 'master';
+  role: 'student' | 'master' | 'user';
+  support_code?: string;
   onboarded?: boolean;
   analyCalibrated?: boolean;
+  conversations_count?: number;
+  saved_objects_count?: number;
+  last_login?: any;
 }
 
 // NUEVOS TIPOS: AR VISION

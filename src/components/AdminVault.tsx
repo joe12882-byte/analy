@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { Database, Search, ArrowRight, Trash2, FolderSync, ShieldAlert, Sparkles, Filter, ChevronRight } from 'lucide-react';
 import { CurationEntry } from '../types';
 import VoiceSelector from './VoiceSelector';
-import TTSQuotaMeter from './TTSQuotaMeter';
+import { safeStorage } from '../lib/storage';
 
 export default function AdminVault() {
   const [intelDb, setIntelDb] = useState<CurationEntry[]>([]);
@@ -10,27 +10,28 @@ export default function AdminVault() {
 
   useEffect(() => {
     // Load Intel from global intel queue / local intel
-    const storedGlobal = localStorage.getItem('analy_global_intel');
-    const storedUniversal = localStorage.getItem('analy_universal_scripts');
-    const storedLocal = localStorage.getItem('analy_local_intel');
+    const storedGlobal = safeStorage.parseJSON<any[]>('analy_global_intel', []);
+    const storedUniversal = safeStorage.parseJSON<any[]>('analy_universal_scripts', []);
+    const storedLocal = safeStorage.parseJSON<any[]>('analy_local_intel', []);
 
-    let combined: any[] = [];
-    if (storedGlobal) combined = [...combined, ...JSON.parse(storedGlobal)];
+    let combined: any[] = [...storedGlobal];
+    
     // Convert universal scripts to unified structure for view
-    if (storedUniversal) {
-       const u = JSON.parse(storedUniversal).map((s: any) => ({
-         id: s.id,
-         topic: s.title,
-         content: `EN: ${s.english} | ES: ${s.spanish} | ${s.context || ''}`,
-         category: s.category,
-         sourceType: 'system'
-       }));
-       combined = [...combined, ...u];
-    }
-    if (storedLocal) combined = [...combined, ...JSON.parse(storedLocal)];
+    const u = storedUniversal.map((s: any) => ({
+      id: s.id,
+      topic: s.title,
+      content: `EN: ${s.english} | ES: ${s.spanish} | ${s.context || ''}`,
+      category: s.category,
+      sourceType: 'system'
+    }));
+    combined = [...combined, ...u, ...storedLocal];
 
     // Deduplicate by ID
-    const unique = Array.from(new Map(combined.map(item => [item.id, item])).values());
+    const unique = Array.from(new Map(
+      combined
+        .filter(item => item && item.id)
+        .map(item => [item.id, item])
+    ).values());
     setIntelDb(unique as CurationEntry[]);
   }, []);
 
@@ -42,13 +43,13 @@ export default function AdminVault() {
     setIntelDb(updated);
     
     // We should ideally sync this back to localStorage files, but since it's an aggregated view:
-    const cleanGlobal = JSON.parse(localStorage.getItem('analy_global_intel') || '[]').filter((x:any) => x.id !== id);
-    const cleanUniversal = JSON.parse(localStorage.getItem('analy_universal_scripts') || '[]').filter((x:any) => x.id !== id);
-    const cleanLocal = JSON.parse(localStorage.getItem('analy_local_intel') || '[]').filter((x:any) => x.id !== id);
+    const cleanGlobal = safeStorage.parseJSON<any[]>('analy_global_intel', []).filter((x:any) => x.id !== id);
+    const cleanUniversal = safeStorage.parseJSON<any[]>('analy_universal_scripts', []).filter((x:any) => x.id !== id);
+    const cleanLocal = safeStorage.parseJSON<any[]>('analy_local_intel', []).filter((x:any) => x.id !== id);
     
-    localStorage.setItem('analy_global_intel', JSON.stringify(cleanGlobal));
-    localStorage.setItem('analy_universal_scripts', JSON.stringify(cleanUniversal));
-    localStorage.setItem('analy_local_intel', JSON.stringify(cleanLocal));
+    safeStorage.setItem('analy_global_intel', JSON.stringify(cleanGlobal));
+    safeStorage.setItem('analy_universal_scripts', JSON.stringify(cleanUniversal));
+    safeStorage.setItem('analy_local_intel', JSON.stringify(cleanLocal));
   };
 
   const filteredDb = selectedCategory ? intelDb.filter(i => i.category === selectedCategory) : intelDb;
@@ -62,16 +63,9 @@ export default function AdminVault() {
         <p className="text-slate-400 text-xs font-bold tracking-widest uppercase">Cerebro Central de Anali</p>
       </div>
 
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-        {/* Acceso rápido a configuración de voz para el Master */}
-        <div className="max-w-md w-full">
-           <VoiceSelector />
-        </div>
-        
-        {/* Medidor de Cuota Premium */}
-        <div className="max-w-md w-full">
-           <TTSQuotaMeter />
-        </div>
+      {/* Acceso rápido a configuración de voz para el Master */}
+      <div className="max-w-md">
+         <VoiceSelector />
       </div>
 
       <div className="flex gap-2 overflow-x-auto pb-2 scrollbar-hide -mx-6 px-6">

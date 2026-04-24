@@ -7,10 +7,13 @@ import Onboarding from '../Onboarding';
 import { useAuth } from '../AuthProvider';
 import { UserProfile } from '../../types';
 import GlobalTutorMic from '../GlobalTutorMic';
+import AnaliAvatar from '../AnaliAvatar';
 
 function cn(...inputs: ClassValue[]) {
   return twMerge(clsx(inputs));
 }
+
+import { safeStorage } from '../../lib/storage';
 
 const ADMIN_EMAIL = 'joe12882@gmail.com';
 
@@ -18,28 +21,36 @@ export default function Layout() {
   const { profile, loading, user } = useAuth();
   const [internalProfile, setInternalProfile] = useState<UserProfile | null>(null);
   const [systemMessage, setSystemMessage] = useState<string | null>(null);
+  const [justFinishedOnboarding, setJustFinishedOnboarding] = useState(false);
+  const videoRef = React.useRef<HTMLVideoElement>(null);
 
   // Master Switch: Protocolo de Confianza
-  const [trustMode, setTrustMode] = useState<'formal' | 'social'>('formal');
+  const [trustMode, setTrustMode] = useState<'formal' | 'social'>(() => 
+    (safeStorage.getItem('analy_trust_mode') as 'formal' | 'social') || 'formal'
+  );
 
   useEffect(() => {
-    if(profile) {
+    if(profile && !justFinishedOnboarding) {
       setInternalProfile(profile);
     }
-  }, [profile]);
+  }, [profile, justFinishedOnboarding]);
   
   useEffect(() => {
-    localStorage.setItem('analy_trust_mode', trustMode);
+    safeStorage.setItem('analy_trust_mode', trustMode);
     window.dispatchEvent(new Event('trustModeChanged'));
   }, [trustMode]);
 
   const handleOnboardingComplete = (completedProfile: UserProfile) => {
     // Optimistic fast update
+    setJustFinishedOnboarding(true);
     setInternalProfile(completedProfile);
     setSystemMessage(`Bienvenida(o), ${completedProfile.displayName || completedProfile.email || 'Estudiante'}. Configurando Anali para ${completedProfile.occupation}...`);
+    
+    // Dejar una ventana para que la DB se sincronice antes de volver a escuchar al AuthProvider
     setTimeout(() => {
+      setJustFinishedOnboarding(false);
       setSystemMessage(null);
-    }, 2500);
+    }, 4000);
   };
 
   const isAdmin = internalProfile?.role === 'master' || internalProfile?.email === ADMIN_EMAIL;
@@ -50,8 +61,11 @@ export default function Layout() {
 
   if (loading) {
      return (
-        <div className="min-h-screen bg-slate-50 flex items-center justify-center">
-            <Loader2 className="animate-spin text-teal-500 w-12 h-12" />
+        <div className="min-h-screen bg-slate-900 flex flex-col items-center justify-center p-6 text-center">
+            <div className="w-12 h-12 border-4 border-teal-500/20 border-t-teal-500 rounded-full animate-spin mb-4" />
+            <p className="text-teal-500 font-black uppercase tracking-[0.2em] text-[10px] animate-pulse">
+              Sincronizando Analí...
+            </p>
         </div>
      );
   }
@@ -65,11 +79,39 @@ export default function Layout() {
       )}
 
       {systemMessage && (
-        <div className="fixed inset-0 bg-slate-50 z-[110] flex flex-col items-center justify-center p-10 text-center space-y-6">
-          <Loader2 className="animate-spin text-teal-400" size={48} />
-          <p className="text-teal-600 font-bold uppercase tracking-widest text-sm animate-pulse">
-            {systemMessage}
-          </p>
+        <div key="system-welcome-overlay" className="fixed inset-0 bg-[#0F0F0F] z-[110] flex flex-col items-center justify-center p-6 text-center space-y-12 overflow-hidden">
+          <div key="system-bg-radial" className="absolute inset-0 bg-[radial-gradient(circle_at_center,rgba(0,240,255,0.1)_0%,transparent_70%)]" />
+
+          <div key="system-video-box" className="relative z-10 w-64 h-64 md:w-80 md:h-80 rounded-full overflow-hidden border-2 border-teal-500 shadow-[0_0_50px_rgba(0,240,255,0.4)] bg-black animate-in fade-in zoom-in duration-500">
+            <video
+              key="system-welcome-video"
+              ref={videoRef}
+              src="/intro_anali.mp4"
+              autoPlay
+              muted
+              loop
+              playsInline
+              className="w-full h-full object-cover"
+            />
+          </div>
+
+          <div key="system-message-stack" className="relative z-10 flex flex-col items-center gap-8 max-w-sm">
+            <div key="system-spinner-container" className="relative">
+              <Loader2 key="system-spinner" className="animate-spin text-teal-400" size={48} />
+              <div key="system-spinner-glow" className="absolute inset-0 blur-xl bg-teal-400/20 animate-pulse" />
+            </div>
+            
+            <div key="system-text-group" className="space-y-3">
+              <p key="system-main-text" className="text-white text-sm font-black italic uppercase tracking-tighter leading-tight drop-shadow-md">
+                {systemMessage}
+              </p>
+              <p key="system-sub-text" className="text-teal-400/60 text-[10px] font-black uppercase tracking-[0.3em] font-black animate-pulse">
+                {user?.email === ADMIN_EMAIL 
+                  ? 'Sincronizando Cerebro de Analí...' 
+                  : 'Analí está afinando tus sentidos técnicos...'}
+              </p>
+            </div>
+          </div>
         </div>
       )}
 
@@ -79,9 +121,7 @@ export default function Layout() {
 
       <header className="px-5 py-4 flex justify-between items-center bg-white/80 backdrop-blur-md shadow-sm border-b border-slate-100 z-40 relative">
         <div className="flex items-center gap-3">
-          <div className="w-10 h-10 bg-teal-50 rounded-2xl flex items-center justify-center shadow-inner">
-            <div className="w-4 h-4 bg-teal-400 rounded-full" />
-          </div>
+          <AnaliAvatar emotion="neutral" size="sm" className="rounded-xl shadow-sm" />
           <div className="flex flex-col">
             <h1 className="text-xl font-bold tracking-tight text-teal-600">Anali</h1>
             <span className="text-[10px] uppercase font-bold text-slate-400 tracking-wide">

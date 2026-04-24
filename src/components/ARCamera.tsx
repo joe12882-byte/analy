@@ -1,8 +1,9 @@
 import React, { useRef, useState, useEffect } from 'react';
-import { Camera, SwitchCamera, Info, Sparkles, X, Volume2, Loader2, AlertCircle, Maximize } from 'lucide-react';
+import { Camera, SwitchCamera, Sparkles, X, Volume2, Loader2, AlertCircle, ScanText, Rocket, Type } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
-import { analyzeToolImage } from '../lib/gemini';
+import { analyzeToolImage, translateImageAR } from '../lib/gemini';
 import { useAuth } from './AuthProvider';
+import { db } from '../lib/firebase';
 import { ARObject } from '../types';
 import { speak as globalSpeak } from '../lib/speech';
 
@@ -11,29 +12,44 @@ export default function ARCamera() {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const [isCameraActive, setIsCameraActive] = useState(false);
   const [analyzing, setAnalyzing] = useState(false);
-  const [detectedObjects, setDetectedObjects] = useState<ARObject[]>([]);
   const [error, setError] = useState<string | null>(null);
   const { profile } = useAuth();
   const [facingMode, setFacingMode] = useState<"user" | "environment">("environment");
   const [frozenFrame, setFrozenFrame] = useState<string | null>(null);
+  const [scanMode, setScanMode] = useState<'identify' | 'translate'>('identify');
+  const [detectedObjects, setDetectedObjects] = useState<ARObject[]>([]);
+  const [textBlocks, setTextBlocks] = useState<any[]>([]); 
+  const [showTranslateTip, setShowTranslateTip] = useState(false);
+  const [savedItemsLocal, setSavedItemsLocal] = useState<string[]>([]);
+  const [selectedBlock, setSelectedBlock] = useState<any | null>(null);
 
   useEffect(() => {
     startCamera();
-    return () => stopCamera();
+    return () => {
+      stopCamera();
+    };
   }, [facingMode]);
+
+  useEffect(() => {
+    try {
+      const hasSeenTip = localStorage.getItem('analy_seen_translate_tip');
+      if (!hasSeenTip && scanMode === 'translate') setShowTranslateTip(true);
+    } catch (e) {
+      if (scanMode === 'translate') setShowTranslateTip(true);
+    }
+  }, [scanMode]);
 
   const startCamera = async () => {
     try {
       const stream = await navigator.mediaDevices.getUserMedia({ 
-        video: { facingMode } 
+        video: { facingMode, width: { ideal: 1920 }, height: { ideal: 1080 } } 
       });
       if (videoRef.current) {
         videoRef.current.srcObject = stream;
         setIsCameraActive(true);
       }
     } catch (err) {
-      console.error("Camera access denied:", err);
-      setError("No se pudo acceder a la cámara. Verifica los permisos de tu navegador.");
+      setError("Permisos de cámara denegados. Activa la cámara en los ajustes de tu navegador.");
     }
   };
 
@@ -51,259 +67,372 @@ export default function ARCamera() {
     if (!videoRef.current || !canvasRef.current) return;
     
     setAnalyzing(true);
-    setDetectedObjects([]);
-    
-    // Configuración de Compresión de Imagen (Mayor Velocidad)
-    const MAX_DIM = 640; 
+    setError(null);
     
     const canvas = canvasRef.current;
     const video = videoRef.current;
     
     let w = video.videoWidth;
     let h = video.videoHeight;
-    
-    if (w > h) {
-      if (w > MAX_DIM) {
-        h *= MAX_DIM / w;
-        w = MAX_DIM;
-      }
-    } else {
-      if (h > MAX_DIM) {
-        w *= MAX_DIM / h;
-        h = MAX_DIM;
-      }
+    if (w <= 0 || h <= 0) {
+      setAnalyzing(false);
+      return;
     }
+    
+    // Scale for Gemini to save bandwidth/performance
+    const MAX_DIM = 1024; 
+    if (w > h && w > MAX_DIM) { h *= MAX_DIM / w; w = MAX_DIM; }
+    else if (h > MAX_DIM) { w *= MAX_DIM / h; h = MAX_DIM; }
     
     canvas.width = w;
     canvas.height = h;
-    const ctx = canvas.getContext('2d');
-    ctx?.drawImage(video, 0, 0, w, h);
-    
-    // .toDataURL() congela con calidad reducida (0.5 max compresion sin perder contexto)
-    const base64Image = canvas.toDataURL('image/jpeg', 0.5); 
-    setFrozenFrame(base64Image); // Freeze image while processing immediately
-    
-    // Ejecución asíncrona no bloqueante
+    const ctx = canvas.getContext('2d', { willReadFrequently: true });
+    if (!ctx) return;
+
+    ctx.drawImage(video, 0, 0, w, h);
+    const capturedBase64 = canvas.toDataURL('image/jpeg', 0.6);
+    setFrozenFrame(capturedBase64);
+
     try {
-      const result = await analyzeToolImage(base64Image);
-      if (result && result.objects && result.objects.length > 0) {
-        setDetectedObjects(result.objects);
+      if (scanMode === 'identify') {
+        const result = await analyzeToolImage(capturedBase64);
+        if (result?.objects?.length > 0) {
+          setDetectedObjects(result.objects);
+        } else {
+          setError("Analí no encontró objetos claros aquí.");
+        }
       } else {
-        setError("Anali no encontró objetos tácticos útiles en esta imagen.");
-        setFrozenFrame(null);
+        const result = await translateImageAR(capturedBase64, profile?.occupation);
+        if (result?.blocks?.length > 0) {
+          setTextBlocks(result.blocks);
+        } else {
+          setError("No se detectó texto legible. Prueba acercándote más o mejorando la iluminación.");
+        }
       }
     } catch (e) {
-      setError("Fallo de red al analizar la imagen.");
-      setFrozenFrame(null);
+      console.error("Capture Error:", e);
+      setError("Error de conexión con Analí. Verifica tu internet.");
+    } finally {
+      setAnalyzing(false);
     }
-    setAnalyzing(false);
-  };
-
-  const speak = (text: string) => {
-    globalSpeak(text, 'en-US');
   };
 
   const resetView = () => {
-    setDetectedObjects([]);
     setFrozenFrame(null);
     setError(null);
+    setDetectedObjects([]);
+    setTextBlocks([]);
+    setSelectedBlock(null);
+    setAnalyzing(false);
+    startCamera();
+  };
+
+  const handleSaveItem = async (data: { label_en: string, label_es: string, phonetic_tactic: string, example_en: string, example_es: string, category?: string }) => {
+    if (!profile?.uid) return;
+    
+    try {
+      const { doc, updateDoc, increment, collection, addDoc, serverTimestamp } = await import('firebase/firestore');
+      
+      const userRef = doc(db, 'users', profile.uid);
+      await updateDoc(userRef, {
+        saved_objects_count: increment(1)
+      });
+
+      const savedRef = collection(db, 'users', profile.uid, 'saved_units');
+      await addDoc(savedRef, {
+        phrase_en: data.label_en,
+        phrase_es: data.label_es,
+        phonetic_tactic: data.phonetic_tactic,
+        example_en: data.example_en || '',
+        example_es: data.example_es || '',
+        category: data.category || scanMode,
+        profession: profile.occupation || 'general',
+        saved_at: serverTimestamp(),
+        source: 'scanner',
+        type: scanMode === 'identify' ? 'object' : 'text'
+      });
+
+      setSavedItemsLocal(prev => [...prev, data.label_en]);
+    } catch (e) {
+      console.error("Error saving:", e);
+    }
+  };
+
+  const speak = (text: string) => {
+    globalSpeak(text, 'en-US').catch(() => {});
   };
 
   return (
-    <div className="relative h-[85vh] bg-slate-50 overflow-hidden flex flex-col p-4 w-full max-w-4xl mx-auto">
+    <div className="relative h-[90vh] bg-slate-50 overflow-hidden flex flex-col p-4 w-full max-w-4xl mx-auto text-quicksand">
       {/* Background Decoratives */}
       <div className="absolute top-[-10%] left-[-10%] w-[40%] h-[40%] bg-teal-300/20 pointer-events-none filter blur-[120px] rounded-full" />
       
-      {/* Header */}
-      <div className="flex justify-between items-center bg-white p-4 rounded-2xl shadow-sm border border-slate-100 z-10 mb-4">
-        <div>
-          <h2 className="text-sm font-bold text-slate-800 tracking-tight">Ojo Táctico de Anali</h2>
-          <div className="flex items-center gap-1.5 mt-0.5">
-            <div className="w-1.5 h-1.5 bg-teal-500 rounded-full animate-pulse" />
-            <p className="text-[10px] uppercase font-bold text-slate-400 tracking-widest">Escáner de Entorno</p>
+      {/* Header & Mode Switcher */}
+      <div className="flex flex-col gap-3 sticky top-0 z-20 mb-4">
+        <div className="flex justify-between items-center bg-white p-4 rounded-2xl shadow-sm border border-slate-100">
+          <div>
+            <h2 className="text-sm font-bold text-slate-800 tracking-tight">Ojo Táctico de Anali</h2>
+            <div className="flex items-center gap-1.5 mt-0.5">
+              <div className={`w-1.5 h-1.5 rounded-full animate-pulse ${scanMode === 'identify' ? 'bg-teal-500' : 'bg-amber-500'}`} />
+              <p className="text-[10px] uppercase font-bold text-slate-400 tracking-widest">
+                {scanMode === 'identify' ? 'Escáner de Objetos' : 'Traductor de Texto'}
+              </p>
+            </div>
+          </div>
+          <div className="flex gap-2">
+            {(frozenFrame || error) && (
+              <button 
+                onClick={resetView}
+                className="p-3 bg-rose-50 text-rose-500 rounded-full hover:bg-rose-100 transition-all"
+              >
+                <X size={18} />
+              </button>
+            )}
+            <button 
+              onClick={toggleCamera} 
+              className="p-3 bg-slate-50 text-slate-600 rounded-full hover:bg-slate-100 active:scale-95 transition-all outline-none"
+            >
+              <SwitchCamera size={18} />
+            </button>
           </div>
         </div>
-        <button 
-          onClick={toggleCamera} 
-          className="p-3 bg-teal-50 text-teal-600 rounded-full hover:bg-teal-100 active:scale-95 transition-all outline-none"
-        >
-          <SwitchCamera size={20} />
-        </button>
+
+        {/* Mode Buttons */}
+        <div className="flex gap-2 p-1 bg-slate-100/50 backdrop-blur-md rounded-2xl border border-white/50">
+          <button 
+            onClick={() => { setScanMode('identify'); resetView(); }}
+            className={`flex-1 flex items-center justify-center gap-2 py-2.5 rounded-xl text-[10px] font-black uppercase tracking-wider transition-all ${scanMode === 'identify' ? 'bg-teal-500 text-white shadow-lg shadow-teal-500/30' : 'text-slate-500 hover:bg-white/50'}`}
+          >
+            <Camera size={14} /> Identificar
+          </button>
+          <button 
+            onClick={() => { setScanMode('translate'); resetView(); }}
+            className={`flex-1 flex items-center justify-center gap-2 py-2.5 rounded-xl text-[10px] font-black uppercase tracking-wider transition-all ${scanMode === 'translate' ? 'bg-amber-500 text-white shadow-lg shadow-amber-500/30' : 'text-slate-500 hover:bg-white/50'}`}
+          >
+            <ScanText size={14} /> Traducir Texto
+          </button>
+        </div>
       </div>
 
-      {/* Viewfinder */}
-      <div className={`relative bg-slate-200 rounded-[32px] overflow-hidden border-[6px] border-white shadow-xl z-0 isolate transition-all duration-300 ${detectedObjects.length > 0 ? "h-1/2 flex-shrink-0" : "flex-1"}`}>
+      {/* Visor Area */}
+      <div className={`relative bg-slate-200 rounded-[32px] overflow-hidden border-[6px] border-white shadow-xl z-0 isolate transition-all duration-300 ${ (detectedObjects.length > 0) ? "h-[45%]" : "flex-1"}`}>
         {error ? (
-          <div className="absolute inset-0 flex items-center justify-center p-6 text-center bg-slate-50">
-            <div className="space-y-4 max-w-[200px]">
-              <AlertCircle className="mx-auto text-rose-500" size={32} />
-              <p className="text-slate-600 text-xs font-medium">{error}</p>
-              <button 
-                onClick={() => { setError(null); startCamera(); }}
-                className="bg-teal-500 text-white px-6 py-3 rounded-full font-bold uppercase text-[10px] tracking-widest active:scale-95 transition-all shadow-md"
-              >
-                Reintentar
-              </button>
-            </div>
+          <div className="absolute inset-0 flex flex-col items-center justify-center p-8 text-center bg-white z-50">
+            <AlertCircle className="text-rose-500 mb-4" size={48} />
+            <p className="text-slate-800 text-sm font-black mb-6">{error}</p>
+            <button onClick={resetView} className="bg-slate-900 text-white px-8 py-4 rounded-2xl font-black uppercase text-[10px] tracking-widest active:scale-95">Reintentar</button>
           </div>
         ) : (
           frozenFrame ? (
-            <img src={frozenFrame} className="absolute inset-0 w-full h-full object-cover filter brightness-[0.85]" alt="Frozen capture" />
+            <img src={frozenFrame} className="absolute inset-0 w-full h-full object-cover filter brightness-[0.85]" alt="Capture" />
           ) : (
-            <video 
-              ref={videoRef} 
-              autoPlay 
-              playsInline 
-              className="absolute inset-0 w-full h-full object-cover"
-            />
+            <video ref={videoRef} autoPlay playsInline className="absolute inset-0 w-full h-full object-cover" />
           )
         )}
 
-        {/* Scan Overlay - Soft Grid */}
-        <div className="absolute inset-0 pointer-events-none p-8 flex flex-col justify-between opacity-50 mix-blend-overlay">
-          <div className="flex justify-between">
-            <div className="w-12 h-12 border-t-4 border-l-4 border-white rounded-tl-3xl" />
-            <div className="w-12 h-12 border-t-4 border-r-4 border-white rounded-tr-3xl" />
-          </div>
-          <div className="flex justify-between">
-            <div className="w-12 h-12 border-b-4 border-l-4 border-white rounded-bl-3xl" />
-            <div className="w-12 h-12 border-b-4 border-r-4 border-white rounded-br-3xl" />
-          </div>
-        </div>
+        {/* Scan line */}
+        {analyzing && (
+          <motion.div 
+            initial={{ top: '10%' }}
+            animate={{ top: '90%' }}
+            transition={{ duration: 1.5, repeat: Infinity, ease: "linear" }}
+            className={`absolute left-0 right-0 h-1 z-10 opacity-80 ${scanMode === 'identify' ? 'bg-teal-400 shadow-[0_0_20px_#2DD4BF]' : 'bg-amber-400 shadow-[0_0_20px_#FBBF24]'}`}
+          />
+        )}
 
-        {/* BOUNDING BOXES (AR Overlay) */}
-        {frozenFrame && detectedObjects.map((obj, i) => (
+        {/* AR Overlays for Identify */}
+        {frozenFrame && scanMode === 'identify' && detectedObjects.map((obj, i) => (
           <motion.div
+            key={i}
             initial={{ opacity: 0, scale: 0.8 }}
             animate={{ opacity: 1, scale: 1 }}
-            transition={{ delay: i * 0.15, type: 'spring' }}
-            key={i}
-            className="absolute border-2 border-teal-400 bg-teal-400/20 rounded-lg shadow-lg flex items-center justify-center cursor-pointer pointer-events-none"
+            className="absolute border-2 border-teal-400 bg-teal-400/20 rounded-lg shadow-lg"
             style={{
               left: `${obj.bbox?.x * 100}%`,
               top: `${obj.bbox?.y * 100}%`,
               width: `${obj.bbox?.w * 100}%`,
               height: `${obj.bbox?.h * 100}%`
             }}
-          >
-            <div className="absolute -top-7 left-1/2 -translate-x-1/2 bg-teal-500 text-white text-[10px] font-bold px-2 py-1 rounded shadow-md whitespace-nowrap overflow-hidden text-ellipsis max-w-full">
-              {obj.label_en}
-            </div>
-          </motion.div>
+          />
         ))}
 
-        {/* Scanning Line */}
-        {analyzing && (
-          <motion.div 
-            initial={{ top: '10%' }}
-            animate={{ top: '90%' }}
-            transition={{ duration: 1.5, repeat: Infinity, ease: "linear" }}
-            className="absolute left-0 right-0 h-1 bg-teal-400 shadow-[0_0_20px_#2DD4BF] z-10 opacity-80"
-          />
-        )}
+        {/* AR Overlays for Translate */}
+        {frozenFrame && scanMode === 'translate' && textBlocks.map((block, i) => (
+          <motion.div
+            key={i}
+            initial={{ opacity: 0, scale: 0.9 }}
+            animate={{ opacity: 1, scale: 1 }}
+            className={`absolute bg-amber-500/90 backdrop-blur-md rounded-lg shadow-xl shadow-amber-500/20 flex flex-col items-center justify-center p-2 text-center border border-white/30 cursor-pointer overflow-hidden group ${selectedBlock === block ? 'ring-4 ring-white' : ''}`}
+            style={{
+              left: `${block.bbox.x * 100}%`,
+              top: `${block.bbox.y * 100}%`,
+              width: `${block.bbox.w * 100}%`,
+              minWidth: '100px',
+              height: 'auto'
+            }}
+            onClick={() => { setSelectedBlock(block); speak(block.original_en); }}
+          >
+             <p className="text-[10px] font-black text-white leading-tight uppercase tracking-tight">{block.translation_es}</p>
+             <p className="text-[7px] font-bold text-amber-100 uppercase mt-1 opacity-60 italic">"{block.original_en}"</p>
+          </motion.div>
+        ))}
       </div>
 
       <canvas ref={canvasRef} className="hidden" />
 
-      {/* Controls Container */}
-      <div className={`pt-4 pb-2 flex justify-center z-10 ${detectedObjects.length > 0 ? "min-h-0" : "min-h-[100px]"}`}>
-        {detectedObjects.length === 0 && !error && (
+      {/* Controls */}
+      <div className="py-6 flex flex-col items-center gap-4">
+        {!frozenFrame && !error && (
           <button 
             onClick={captureFrame}
             disabled={analyzing || !isCameraActive}
-            className={`w-20 h-20 rounded-full flex items-center justify-center transition-all ${analyzing ? 'bg-slate-200 scale-95' : 'bg-teal-500 shadow-xl shadow-teal-500/30 active:scale-90 hover:bg-teal-400'}`}
+            className={`w-20 h-20 rounded-full flex items-center justify-center transition-all shadow-2xl active:scale-95 ${scanMode === 'identify' ? 'bg-teal-500' : 'bg-amber-500'}`}
           >
-            <div className={`w-16 h-16 rounded-full border-4 flex items-center justify-center ${analyzing ? 'border-slate-300' : 'border-white bg-teal-400'}`}>
-              {analyzing ? <Loader2 className="animate-spin text-slate-500" size={32} /> : <Camera className="text-white ml-0.5" size={32} />}
+            <div className="w-16 h-16 rounded-full border-4 border-white/30 flex items-center justify-center">
+              {analyzing ? <Loader2 className="animate-spin text-white" size={32} /> : scanMode === 'identify' ? <Camera className="text-white" size={32} /> : <ScanText className="text-white" size={32} />}
             </div>
+          </button>
+        )}
+
+        {frozenFrame && !selectedBlock && !detectedObjects.length && (
+          <button 
+            onClick={resetView}
+            className="px-8 py-4 bg-slate-900 text-white rounded-2xl font-black uppercase text-[10px] tracking-widest shadow-xl active:scale-95"
+          >
+             Nueva Foto / Limpiar
           </button>
         )}
       </div>
 
-      {/* Info Card - Multiobject (Panel Inferior) */}
+      {/* Bottom Panel for Identify / Translate Results */}
       <AnimatePresence>
-        {detectedObjects.length > 0 && (
+        {(scanMode === 'identify' && detectedObjects.length > 0) || (scanMode === 'translate' && selectedBlock) ? (
           <motion.div 
-            initial={{ opacity: 0, y: 20 }}
+            initial={{ opacity: 0, y: 100 }}
             animate={{ opacity: 1, y: 0 }}
-            exit={{ opacity: 0, y: 20 }}
-            className="flex-1 mt-2 bg-white rounded-3xl p-5 border border-slate-100 shadow-xl overflow-y-auto custom-scrollbar flex flex-col"
+            exit={{ opacity: 0, y: 100 }}
+            className="flex-1 bg-white rounded-t-[40px] p-6 shadow-2xl overflow-y-auto"
           >
-            <div className="flex justify-between items-start mb-4 sticky top-0 bg-white z-10 pb-2">
-              <div className="space-y-1">
-                <span className="text-teal-600 text-[10px] uppercase font-black tracking-widest">Análisis Multiobjeto</span>
-                <h2 className="text-xl font-black text-slate-800 leading-tight">Múltiples hallazgos</h2>
-              </div>
-              <div className="flex gap-2">
-                <button 
-                  onClick={() => {
-                    alert("Objetos guardados en Estante Local.");
-                    resetView();
-                  }}
-                  className="px-4 py-2 bg-teal-50 text-teal-600 font-bold text-[10px] uppercase tracking-wider rounded-full hover:bg-teal-100 transition-colors"
-                >
-                  Guardar Todos
-                </button>
-                <button 
-                  onClick={resetView}
-                  className="px-4 py-2 bg-slate-100 text-slate-500 font-bold text-[10px] uppercase tracking-wider rounded-full hover:bg-slate-200 transition-colors flex items-center gap-1"
-                >
-                  <X size={14} /> Nueva Foto
-                </button>
-              </div>
+            <div className="flex justify-between items-center mb-6">
+              <h2 className="text-lg font-black text-slate-800 uppercase">
+                {scanMode === 'identify' ? 'Objetos Detectados' : 'Traducción Detallada'}
+              </h2>
+              <button 
+                onClick={() => {
+                  if (scanMode === 'identify') resetView();
+                  else setSelectedBlock(null);
+                }} 
+                className="p-2 bg-slate-100 rounded-full"
+              >
+                <X size={18} />
+              </button>
             </div>
 
-            <div className="space-y-3 pb-8">
-              {detectedObjects.map((obj, i) => (
-                <div key={i} className="bg-slate-50 p-4 rounded-2xl border border-slate-100 shadow-sm flex flex-col gap-3 group relative overflow-hidden active:bg-slate-100 transition-all">
-                  <div className="flex justify-between items-start">
-                    <div className="flex flex-col">
-                        <span className="text-lg font-black text-slate-800 flex items-center gap-2">
-                           <Maximize size={14} className="text-teal-500" /> {obj.label_en}
-                        </span>
-                        <span className="text-xs text-slate-500 italic font-medium">{obj.label_es}</span>
+            <div className="space-y-4">
+              {scanMode === 'identify' ? (
+                detectedObjects.map((obj, i) => (
+                  <div key={i} className="bg-slate-50 p-4 rounded-3xl border border-slate-100 space-y-3">
+                    <div className="flex justify-between items-start">
+                      <div>
+                        <h3 className="text-xl font-black text-slate-800">{obj.label_en}</h3>
+                        <p className="text-sm text-slate-500 font-bold">{obj.label_es}</p>
+                      </div>
+                      <button onClick={() => speak(obj.label_en)} className="p-3 bg-teal-500 text-white rounded-xl">
+                        <Volume2 size={20} />
+                      </button>
                     </div>
-                    <button onClick={(e) => { e.stopPropagation(); speak(obj.label_en); }} className="w-10 h-10 bg-teal-100/50 shrink-0 rounded-full flex items-center justify-center text-teal-600 active:scale-95 transition-transform hover:bg-teal-100">
-                      <Volume2 size={16} />
+                    
+                    <div className="bg-white p-3 rounded-2xl border border-teal-50 italic text-sm font-medium text-slate-600">
+                      "{obj.example_en}"
+                    </div>
+
+                    <button 
+                      onClick={() => handleSaveItem({
+                        label_en: obj.label_en,
+                        label_es: obj.label_es,
+                        phonetic_tactic: obj.phonetic_tactic,
+                        example_en: obj.example_en,
+                        example_es: obj.example_es,
+                        category: 'scanner_object'
+                      })}
+                      className="w-full py-3 bg-teal-500 text-white rounded-xl text-[10px] font-black uppercase tracking-widest"
+                    >
+                      Guardar en mi Biblioteca
                     </button>
                   </div>
-                  
-                  <div className="bg-white p-3 rounded-xl border border-teal-50">
-                     <p className="text-sm font-bold text-slate-700">"{obj.example_en}"</p>
-                     <p className="text-[11px] text-slate-400 italic mt-1">{obj.example_es}</p>
-                     <p className="text-xs text-teal-500 font-bold mt-2">👄 {obj.phonetic_tactic}</p>
+                ))
+              ) : selectedBlock && (
+                <div className="bg-slate-50 p-6 rounded-3xl border border-slate-100 space-y-4">
+                  <div className="flex justify-between items-start">
+                    <div>
+                      <h3 className="text-2xl font-black text-slate-800 leading-tight">{selectedBlock.original_en}</h3>
+                      <p className="text-base text-amber-600 font-black mt-1">{selectedBlock.translation_es}</p>
+                      <p className="text-xs text-slate-400 font-bold mt-2 uppercase tracking-tighter">[{selectedBlock.phonetic_tactic}]</p>
+                    </div>
+                    <button onClick={() => speak(selectedBlock.original_en)} className="p-4 bg-amber-500 text-white rounded-2xl shadow-lg">
+                      <Volume2 size={24} />
+                    </button>
+                  </div>
+
+                  {selectedBlock.learning_tip && (
+                    <div className="bg-white p-4 rounded-2xl border-l-4 border-amber-500 shadow-sm">
+                      <p className="text-xs font-bold text-slate-500 uppercase mb-1">Tip de Analí:</p>
+                      <p className="text-sm text-slate-700 italic">{selectedBlock.learning_tip}</p>
+                    </div>
+                  )}
+
+                  <div className="flex gap-2">
+                    <button 
+                      onClick={() => handleSaveItem({
+                        label_en: selectedBlock.original_en,
+                        label_es: selectedBlock.translation_es,
+                        phonetic_tactic: selectedBlock.phonetic_tactic,
+                        example_en: '',
+                        example_es: '',
+                        category: 'scanner_text'
+                      })}
+                      className="flex-1 py-4 bg-slate-900 text-white rounded-2xl text-[10px] font-black uppercase tracking-widest active:scale-95 transition-all"
+                    >
+                      Guardar Traducción
+                    </button>
+                    <button 
+                      onClick={resetView}
+                      className="py-4 px-6 bg-slate-200 text-slate-600 rounded-2xl text-[10px] font-black uppercase"
+                    >
+                      Cerrar
+                    </button>
                   </div>
                 </div>
-              ))}
+              )}
             </div>
           </motion.div>
-        )}
+        ) : null}
       </AnimatePresence>
 
-      {/* Floating Thumbnail Overlay (Miniatura Profesional) */}
+      {/* Helper Tip */}
       <AnimatePresence>
-        {frozenFrame && detectedObjects.length > 0 && (
-          <motion.div
-            initial={{ opacity: 0, scale: 0.8, rotate: 4, x: 20 }}
-            animate={{ opacity: 1, scale: 1, rotate: 0, x: 0 }}
-            exit={{ opacity: 0, scale: 0.8, rotate: -4, x: 20 }}
-            className="absolute top-24 right-6 w-24 h-32 z-50 rounded-2xl overflow-hidden border-[4px] border-white shadow-2xl shadow-teal-900/20 pointer-events-none"
+        {showTranslateTip && scanMode === 'translate' && (
+          <motion.div 
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="absolute inset-0 z-[100] flex items-center justify-center p-6 bg-slate-950/90 backdrop-blur-md"
           >
-            <img src={frozenFrame} className="w-full h-full object-cover" alt="Referencia Miniatura" />
-            <div className="absolute inset-0 rounded-xl ring-1 ring-inset ring-black/10" />
-            
-            {/* Punteros de los objetos en la miniatura */}
-            {detectedObjects.map((obj, i) => (
-               <div 
-                 key={`thumb-${i}`}
-                 className="absolute w-2 h-2 bg-teal-500 rounded-full border border-white shadow-sm"
-                 style={{
-                   left: `${(obj.bbox?.x || 0) * 100}%`,
-                   top: `${(obj.bbox?.y || 0) * 100}%`,
-                   transform: 'translate(-50%, -50%)' // Center the dot
-                 }}
-               />
-            ))}
+            <div className="bg-white rounded-[40px] p-10 w-full max-w-sm shadow-2xl space-y-8 text-center animate-in zoom-in duration-500">
+               <div className="w-20 h-20 bg-amber-500 rounded-[28px] mx-auto flex items-center justify-center rotate-6 shadow-xl">
+                 <Rocket className="text-white" size={36} />
+               </div>
+               <div className="space-y-3">
+                 <h3 className="text-2xl font-black text-slate-800 leading-tight">¡Traducción Táctica! 🎯</h3>
+                 <p className="text-sm text-slate-500 font-medium leading-relaxed italic">Apunta la cámara a cualquier letrero o texto en inglés. Analí lo traducirá directamente sobre la imagen.</p>
+               </div>
+               <button 
+                 onClick={() => { setShowTranslateTip(false); localStorage.setItem('analy_seen_translate_tip', 'true'); }}
+                 className="w-full py-5 bg-slate-900 text-white rounded-3xl font-black uppercase text-[11px] tracking-widest active:scale-95"
+               >
+                 ¡Vamos a ello!
+               </button>
+            </div>
           </motion.div>
         )}
       </AnimatePresence>

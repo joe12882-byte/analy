@@ -6,6 +6,8 @@ import { UserProfile } from '../types';
 import { db } from '../lib/firebase';
 import { collection, addDoc, serverTimestamp } from 'firebase/firestore';
 import { speak as globalSpeak } from '../lib/speech';
+import { safeStorage } from '../lib/storage';
+import AnaliAvatar, { AnaliEmotion } from './AnaliAvatar';
 
 interface RoleplayProps {
   userProfile: UserProfile | null;
@@ -29,10 +31,10 @@ export default function RoleplayMode({ userProfile, trustMode }: RoleplayProps) 
 
   useEffect(() => {
     // Check local storage for pre-configured scenario from voice intent
-    const preConfig = localStorage.getItem('analy_nav_scenario');
+    const preConfig = safeStorage.getItem('analy_nav_scenario');
     if (preConfig) {
       setScenarioRole(preConfig.charAt(0).toUpperCase() + preConfig.slice(1));
-      localStorage.removeItem('analy_nav_scenario'); // clear after use
+      safeStorage.removeItem('analy_nav_scenario'); // clear after use
     }
   }, []);
 
@@ -48,16 +50,22 @@ export default function RoleplayMode({ userProfile, trustMode }: RoleplayProps) 
     setMessages([]);
     const prof = userProfile?.occupation || 'general professional';
     
-    // Iniciar con la primera linea del rol
-    const result = await roleplayTurn(
-      scenarioRole, prof, difficulty, trustMode, [], "Start the interaction."
-    );
-    
-    if (result && !result.errorMsg) {
-      setMessages([{ role: 'anali', ...result }]);
-      speak(result.reply_en);
+    try {
+      const result = await roleplayTurn(
+        scenarioRole, prof, difficulty, trustMode, [], "Start the interaction."
+      );
+      
+      if (result && !result.errorMsg) {
+        setMessages([{ role: 'anali', ...result }]);
+        speak(result.reply_en);
+      }
+    } catch (err) {
+      console.error("Roleplay Start Error:", err);
+      alert("Error al iniciar el roleplay. Reintente.");
+      setStep('setup');
+    } finally {
+      setIsProcessing(false);
     }
-    setIsProcessing(false);
   };
 
   const submitTurn = async (text: string) => {
@@ -76,38 +84,49 @@ export default function RoleplayMode({ userProfile, trustMode }: RoleplayProps) 
     if (userTurnsCount >= maxTurns) {
        // Terminate automatically
        setStep('grading');
-       const userLines = historySnapshot.filter(m => m.role === 'user').map(m => m.text_en);
-       const grades = await gradeRoleplay(prof, scenarioRole, userLines);
-       if (grades) {
-         setGradeResult(grades);
-         setStep('finished');
-         // Save to DB
-         if (userProfile?.uid) {
-           await addDoc(collection(db, 'roleplay_sessions'), {
-             user_id: userProfile.uid,
-             profession: prof,
-             scenario_role: scenarioRole,
-             difficulty,
-             mode: trustMode,
-             max_turns: maxTurns,
-             turns: historySnapshot,
-             grade: grades,
-             created_at: serverTimestamp()
-           }).catch(console.error);
+       try {
+         const userLines = historySnapshot.filter(m => m.role === 'user').map(m => m.text_en);
+         const grades = await gradeRoleplay(prof, scenarioRole, userLines);
+         if (grades) {
+           setGradeResult(grades);
+           setStep('finished');
+           // Save to DB
+           if (userProfile?.uid) {
+             await addDoc(collection(db, 'roleplay_sessions'), {
+               user_id: userProfile.uid,
+               profession: prof,
+               scenario_role: scenarioRole,
+               difficulty,
+               mode: trustMode,
+               max_turns: maxTurns,
+               turns: historySnapshot,
+               grade: grades,
+               created_at: serverTimestamp()
+             }).catch(console.error);
+           }
+         } else {
+           alert("Hubo un error calificando el roleplay.");
+           setStep('setup');
          }
-       } else {
-         alert("Hubo un error calificando el roleplay.");
+       } catch (err) {
+         console.error("Grading Error:", err);
+         alert("Error al calificar.");
          setStep('setup');
        }
     } else {
-      const result = await roleplayTurn(
-        scenarioRole, prof, difficulty, trustMode, apiHistory, text
-      );
-      if (result && !result.errorMsg) {
-        setMessages(prev => [...prev, { role: 'anali', ...result }]);
-        speak(result.reply_en);
+      try {
+        const result = await roleplayTurn(
+          scenarioRole, prof, difficulty, trustMode, apiHistory, text
+        );
+        if (result && !result.errorMsg) {
+          setMessages(prev => [...prev, { role: 'anali', ...result }]);
+          speak(result.reply_en);
+        }
+      } catch (err) {
+        console.error("Turn Error:", err);
+      } finally {
+        setIsProcessing(false);
       }
-      setIsProcessing(false);
     }
   };
 
@@ -192,9 +211,16 @@ export default function RoleplayMode({ userProfile, trustMode }: RoleplayProps) 
         <div className="flex-1 flex flex-col">
            {/* Chat View */}
            <div className="flex-1 overflow-y-auto space-y-4 pb-4 custom-scrollbar max-h-[45vh]">
-              {messages.map((m, i) => (
-                <div key={i} className={`flex flex-col ${m.role === 'user' ? 'items-end' : 'items-start'}`}>
-                   <div className={`max-w-[85%] p-4 rounded-2xl ${m.role === 'user' ? 'bg-amber-500 text-white rounded-br-sm' : 'bg-slate-100 text-slate-800 rounded-bl-sm border border-slate-200'}`}>
+               {messages.map((m, i) => (
+                <div key={i} className={`flex gap-3 ${m.role === 'user' ? 'flex-row-reverse' : ''}`}>
+                   {m.role === 'anali' ? (
+                     <AnaliAvatar emotion={m.emotion === 'angry' ? 'surprised' : 'neutral'} size="sm" className="shrink-0 mt-2" />
+                    ) : (
+                     <div className="w-10 h-10 bg-amber-500 rounded-xl flex items-center justify-center shrink-0 mt-2 text-white shadow-sm">
+                       <User size={18} />
+                     </div>
+                    )}
+                   <div className={`max-w-[75%] p-4 rounded-2xl ${m.role === 'user' ? 'bg-amber-500 text-white rounded-tr-none' : 'bg-slate-100 text-slate-800 rounded-tl-none border border-slate-200'}`}>
                       {m.role === 'anali' && <div className="text-[10px] font-black uppercase text-amber-600 mb-1 flex items-center gap-1"><ShieldAlert size={10}/> {m.emotion}</div>}
                       <p className="font-bold text-sm leading-snug">{m.role === 'user' ? m.text_en : m.reply_en}</p>
                       {m.role === 'anali' && (
@@ -207,8 +233,9 @@ export default function RoleplayMode({ userProfile, trustMode }: RoleplayProps) 
                 </div>
               ))}
               {isProcessing && (
-                <div className="flex justify-start">
-                  <div className="bg-slate-100 p-4 rounded-2xl rounded-bl-sm border border-slate-200 flex gap-1 items-center h-12">
+                <div className="flex justify-start gap-3">
+                  <AnaliAvatar emotion="thinking" size="sm" className="shrink-0 mt-2" />
+                  <div className="bg-slate-100 p-4 rounded-2xl rounded-tl-none border border-slate-200 flex gap-1 items-center h-12">
                      <Loader2 className="animate-spin text-slate-400" size={16} />
                   </div>
                 </div>
@@ -239,7 +266,8 @@ export default function RoleplayMode({ userProfile, trustMode }: RoleplayProps) 
       {step === 'finished' && gradeResult && (
         <div className="flex-1 space-y-6 overflow-y-auto custom-scrollbar pr-2 max-h-[60vh]">
           <div className="text-center space-y-2">
-            <div className="w-16 h-16 bg-amber-100 text-amber-500 rounded-full flex items-center justify-center mx-auto mb-2"><Award size={32} /></div>
+            <AnaliAvatar emotion="success" size="xl" className="mx-auto mb-4" />
+            <div className="w-16 h-16 bg-amber-100 text-amber-500 rounded-full flex items-center justify-center mx-auto mb-2 opacity-0 absolute"><Award size={32} /></div>
             <h3 className="text-2xl font-black text-slate-800">Vuelo Terminado</h3>
             <p className="text-sm text-slate-500 font-medium">Nota global: <span className="text-amber-600 font-black text-xl">{gradeResult.overall}%</span></p>
           </div>
@@ -255,17 +283,17 @@ export default function RoleplayMode({ userProfile, trustMode }: RoleplayProps) 
 
           <div className="bg-teal-50 border border-teal-100 p-4 rounded-xl">
              <h4 className="text-xs font-black uppercase text-teal-600 mb-2 flex items-center gap-1"><Sparkles size={14}/> Fortalezas</h4>
-             <ul className="text-sm text-slate-700 space-y-1 list-disc pl-4">{gradeResult.strengths?.map((s: string, i: number) => <li key={i}>{s}</li>)}</ul>
+             <ul className="text-sm text-slate-700 space-y-1 list-disc pl-4">{(gradeResult.strengths || []).map((s: string, i: number) => <li key={i}>{s}</li>)}</ul>
           </div>
           
           <div className="bg-rose-50 border border-rose-100 p-4 rounded-xl">
              <h4 className="text-xs font-black uppercase text-rose-600 mb-2 flex items-center gap-1"><RefreshCcw size={14}/> A Mejorar</h4>
-             <ul className="text-sm text-slate-700 space-y-1 list-disc pl-4">{gradeResult.improvements?.map((s: string, i: number) => <li key={i}>{s}</li>)}</ul>
+             <ul className="text-sm text-slate-700 space-y-1 list-disc pl-4">{(gradeResult.improvements || []).map((s: string, i: number) => <li key={i}>{s}</li>)}</ul>
           </div>
 
           <div className="space-y-3">
              <h4 className="text-xs font-black uppercase text-slate-400">Correcciones Literales:</h4>
-             {gradeResult.corrected_examples?.map((ex: any, i: number) => (
+             {(gradeResult.corrected_examples || []).map((ex: any, i: number) => (
                 <div key={i} className="bg-white border border-slate-200 p-4 rounded-xl shadow-sm text-sm">
                    <p className="text-rose-500 font-medium line-through mb-1">"{ex.user}"</p>
                    <p className="text-teal-600 font-black text-base">{ex.better_en}</p>

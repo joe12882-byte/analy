@@ -75,21 +75,26 @@ export default function ShadowMode({ userProfile, learningUnits }: ShadowProps) 
     if (!selectedUnit) return;
     setIsProcessing(true);
     
-    const result = await gradeShadow(selectedUnit.phrase_en, audioTranscript);
-    if (result) {
-      setGradeResult(result);
-      if (userProfile?.uid) {
-         await addDoc(collection(db, 'shadow_attempts'), {
-           user_id: userProfile.uid,
-           target_en: selectedUnit.phrase_en,
-           user_transcript: audioTranscript,
-           overall_score: result.overall,
-           word_scores: result, 
-           created_at: serverTimestamp()
-         }).catch(console.error);
+    try {
+      const result = await gradeShadow(selectedUnit.phrase_en, audioTranscript);
+      if (result) {
+        setGradeResult(result);
+        if (userProfile?.uid) {
+           await addDoc(collection(db, 'shadow_attempts'), {
+             user_id: userProfile.uid,
+             target_en: selectedUnit.phrase_en,
+             user_transcript: audioTranscript,
+             overall_score: result.overall,
+             word_scores: result, 
+             created_at: serverTimestamp()
+           }).catch(console.error);
+        }
       }
+    } catch (err) {
+      console.error("Shadow Evaluation Error:", err);
+    } finally {
+      setIsProcessing(false);
     }
-    setIsProcessing(false);
   };
 
   // Helper to colorize words
@@ -187,7 +192,7 @@ export default function ShadowMode({ userProfile, learningUnits }: ShadowProps) 
                      <div className="bg-amber-50 rounded-2xl p-4 border border-amber-100">
                        <h4 className="text-[10px] font-black uppercase text-amber-600 tracking-widest mb-2 flex items-center gap-1"><Sparkles size={12}/> Feedback Analí</h4>
                        <ul className="text-xs text-slate-700 space-y-2 list-disc pl-4 font-medium">
-                          {gradeResult.tips.map((t: string, i: number) => <li key={i}>{t}</li>)}
+                          {(gradeResult.tips || []).map((t: string, i: number) => <li key={i}>{t}</li>)}
                        </ul>
                      </div>
                    )}

@@ -1,4 +1,7 @@
-import { getTTSQuota, trackTTSUsage, synthesizeGoogleCloudTTS, getCachedAudio, setCachedAudio, TTS_BUDGET_LIMIT } from './ttsTracker';
+import { synthesizeElevenLabsTTS } from './elevenlabs';
+import { getCachedAudio, setCachedAudio, trackElevenLabsUsage } from './ttsTracker';
+
+import { safeStorage } from './storage';
 
 export type VoiceSettings = {
   selectedVoiceURI?: string;
@@ -7,16 +10,11 @@ export type VoiceSettings = {
 
 // Configuración persistente...
 const getSettings = (): VoiceSettings => {
-  try {
-    const data = localStorage.getItem('analy_voice_settings');
-    return data ? JSON.parse(data) : { auto: true };
-  } catch {
-    return { auto: true };
-  }
+  return safeStorage.parseJSON<VoiceSettings>('analy_voice_settings', { auto: true });
 };
 
 export const setVoiceSettings = (settings: VoiceSettings) => {
-  localStorage.setItem('analy_voice_settings', JSON.stringify(settings));
+  safeStorage.setItem('analy_voice_settings', JSON.stringify(settings));
 };
 
 // Listas de filtro para Anali
@@ -123,7 +121,7 @@ export const getBestVoice = async (lang: string = 'en-US'): Promise<SpeechSynthe
 let activeAudio: HTMLAudioElement | null = null;
 let activeUtterance: SpeechSynthesisUtterance | null = null;
 
-export const speak = async (text: string, lang: string = 'en-US'): Promise<any> => {
+export const speak = async (text: string, lang: string = 'en-US', forcePlanA: boolean = false): Promise<any> => {
   const settings = getSettings();
   
   if (activeAudio) {
@@ -137,29 +135,37 @@ export const speak = async (text: string, lang: string = 'en-US'): Promise<any> 
      activeUtterance = null;
   }
 
-  // 1. Intentar usar la Voz Premium de Niña (Google Cloud Neural2) en Fase A y Fase B
-  if (settings.auto) {
+  // Verificar estado Plan A asíncronamente o desde un estado cargado
+  const checkStatus = async () => {
+    try {
+      const res = await fetch('/api/tts/status');
+      return await res.json();
+    } catch {
+       return { hasElevenLabs: false };
+    }
+  };
+
+  const status = await checkStatus();
+
+  // PLAN A: ElevenLabs (Solo si se solicita explícitamente forcePlanA y el usuario es Master)
+  const profile = safeStorage.parseJSON<any>('analy_user_profile', null);
+  const isMaster = profile?.role === 'master' || profile?.email === 'joe12882@gmail.com';
+
+  if (forcePlanA && status.hasElevenLabs && isMaster) {
     const hashStr = Math.abs(Array.from(text).reduce((s, c) => Math.imul(31, s) + c.charCodeAt(0) | 0, 0)).toString();
-    const cacheKey = `tts_${lang}_${text.length}_${hashStr}`;
+    const cacheKey = `tts_el_${text.length}_${hashStr}`;
     
     let audioContent = await getCachedAudio(cacheKey);
 
     if (!audioContent) {
       try {
-        const quota = await getTTSQuota();
-        // Verificamos si aún tiene presupuesto
-        if (quota.used < TTS_BUDGET_LIMIT && import.meta.env.VITE_GCP_TTS_API_KEY) {
-          audioContent = await synthesizeGoogleCloudTTS(text, lang);
-          if (audioContent) {
-            // No bloqueamos y guardamos cache asincronamente
-            setCachedAudio(cacheKey, audioContent).catch(() => {});
-            trackTTSUsage(text.length).catch(() => {}); // sum chars
-          }
-        } else if (quota.used >= TTS_BUDGET_LIMIT && import.meta.env.VITE_GCP_TTS_API_KEY) {
-           console.info("Anali: Cuota de Premium Voice Agotada. Entrando en Fase C (Ahorro/Voz Local Bio-emulada).");
+        audioContent = await synthesizeElevenLabsTTS(text);
+        if (audioContent) {
+          setCachedAudio(cacheKey, audioContent).catch(() => {});
+          trackElevenLabsUsage(text.length).catch(() => {});
         }
       } catch (err) {
-        console.warn("Fallo transparente en síntesis de TTS, usando fallback", err);
+        console.warn("Fallo transparente en ElevenLabs, usando Plan B", err);
       }
     }
 
@@ -176,13 +182,13 @@ export const speak = async (text: string, lang: string = 'en-US'): Promise<any> 
         await activeAudio.play();
         return playable;
       } catch (e) {
-        console.warn("Audio interactivo bloqueado por navegador, intentando Fallback local", e);
+        console.warn("Audio interactivo bloqueado, saltando a Plan B", e);
         activeAudio = null;
       }
     }
   }
 
-  // 2. Fase C (Fallback) / User Selected Voice (Voz emulada local)
+  // PLAN B: Navegador (Sistema local gratuito)
   if (!window.speechSynthesis) return null;
   
   const utterance = new SpeechSynthesisUtterance(text);
@@ -191,16 +197,23 @@ export const speak = async (text: string, lang: string = 'en-US'): Promise<any> 
   const voice = await getBestVoice(lang);
   if (voice) {
     utterance.voice = voice;
-  } 
+    // Si es voz de Google o similar, podemos ajustar pitch/rate para sonar más joven
+    if (voice.name.toLowerCase().includes('google')) {
+      utterance.pitch = 1.3; // Más agudo = más joven
+      utterance.rate = 1.0;  // Velocidad normal para claridad
+    } else {
+      utterance.pitch = 1.2;
+      utterance.rate = 0.95;
+    }
+  } else {
+    utterance.pitch = 1.3;
+  }
   
-  // Emular voz de niña local siempre en fallback
-  utterance.pitch = 1.3; 
   if (lang.startsWith('en')) {
     utterance.rate = 0.9;
   }
 
   activeUtterance = utterance;
   window.speechSynthesis.speak(utterance);
-  
   return utterance;
 };

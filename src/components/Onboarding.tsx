@@ -1,336 +1,316 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
-import { ArrowRight, User, Briefcase, CheckCircle, Mic, Sparkles } from 'lucide-react';
+import { ArrowRight, User, Briefcase, CheckCircle, Mail, Lock, Eye, EyeOff, ChevronLeft, Loader2 } from 'lucide-react';
 import { UserProfile } from '../types';
 import { useAuth } from './AuthProvider';
 import { doc, updateDoc, serverTimestamp } from 'firebase/firestore';
 import { db } from '../lib/firebase';
+import { safeStorage } from '../lib/storage';
+import AnaliAvatar from './AnaliAvatar';
 
 interface OnboardingProps {
   onComplete: (profile: UserProfile) => void;
 }
 
-const OCCUPATIONS = [
-  'Barbero',
-  'Mecánico',
-  'Mesero',
-  'Usuario General',
-  'Construcción',
-  'Otro'
-];
+const OCCUPATIONS = ['Barbero', 'Mecánico', 'Mesero', 'Limpieza', 'Usuario General', 'Otro'];
+
+const InputField = ({ label, icon: Icon, type, value, onChange, placeholder, required = false }: any) => (
+  <div className="space-y-1.5 ring-offset-slate-900">
+    <label className="text-[10px] font-black uppercase tracking-widest text-[#00F0FF]/60 ml-2">{label}</label>
+    <div className="relative group">
+      <div className="absolute left-4 top-1/2 -translate-y-1/2 text-white/20 group-focus-within:text-[#00F0FF] transition-colors">
+        <Icon size={18} />
+      </div>
+      <input
+        type={type}
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+        placeholder={placeholder}
+        required={required}
+        autoComplete="off"
+        className="w-full bg-[#1A1A1A] border border-white/10 rounded-2xl py-4 pl-12 pr-4 text-white font-medium focus:outline-none focus:border-[#00F0FF] focus:ring-1 focus:ring-[#00F0FF]/20 transition-all placeholder:text-white/10"
+      />
+    </div>
+  </div>
+);
 
 export default function Onboarding({ onComplete }: OnboardingProps) {
-  const [step, setStep] = useState(1);
+  const [step, setStep] = useState(1); // 1: Login/Identification, 2: Registration, 3: Calibration
+  const [email, setEmail] = useState('');
+  const [password, setPassword] = useState('');
+  const [firstName, setFirstName] = useState('');
   const [occupation, setOccupation] = useState('Usuario General');
-  const [analyCount, setAnalyCount] = useState(0);
-  const { signIn, user, profile } = useAuth();
-  const [isSigningIn, setIsSigningIn] = useState(false);
+  
+  const [isNewStudent, setIsNewStudent] = useState(false);
+  
+  const [showPassword, setShowPassword] = useState(false);
+  const [error, setError] = useState('');
+  const [isProcessing, setIsProcessing] = useState(false);
 
-  const recognitionRef = useRef<any>(null);
-  const [isListening, setIsListening] = useState(false);
+  // Video State for Transition
+  const [videoFinished, setVideoFinished] = useState(false);
+  const videoRef = useRef<HTMLVideoElement>(null);
 
-  // If user is already authenticated & we have a profile from Firebase, they might just need to finish occupation/calibration.
-  // Actually, if we just want to update occupation in FireStore, we can do it later.
-  // For simplicity, let's just make step 1 the Google Login.
+  const { signInWithEmail, signUpWithEmail, user, profile } = useAuth();
 
-  const handleLoginNext = async () => {
-    setIsSigningIn(true);
-    try {
-      if (!user) {
-        await signIn();
-      }
-      setStep(2);
-    } catch (error) {
-      console.error("Login failed", error);
-    } finally {
-      setIsSigningIn(false);
-    }
-  };
-
-  const [voiceVariations, setVoiceVariations] = useState<string[]>([]);
-
-  const startCalibration = () => {
-    const SpeechRecognition = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
-    if (!SpeechRecognition) {
-      alert("El reconocimiento de voz no es compatible con este navegador.");
-      handleFinish([]); // Fallback
-      return;
-    }
-
-    setIsListening(true);
-    let localCount = analyCount;
-    let localVariations = [...voiceVariations];
-    const wakeWords = ['analy', 'analí', 'anali', 'analee', 'annaly', 'ana lee', 'ana li', 'anna lee', 'analeigh'];
-    const regex = new RegExp(wakeWords.join('|'), 'gi');
-
-    const recognition = new SpeechRecognition();
-    recognition.lang = 'es-ES';
-    recognition.continuous = true;
-    recognition.interimResults = true;
-
-    recognition.onresult = (event: any) => {
-      let newFinals = '';
-      for (let i = event.resultIndex; i < event.results.length; ++i) {
-        if (event.results[i].isFinal) {
-           newFinals += event.results[i][0].transcript + ' ';
-        }
-      }
-      
-      if (newFinals.trim().length > 0) {
-         const matches = newFinals.match(regex);
-         if (matches && localCount < 3) {
-            // Take only what's needed to reach 3
-            matches.forEach(m => {
-              if (localCount < 3) {
-                localCount++;
-                localVariations.push(m);
-              }
-            });
-            
-            setAnalyCount(localCount);
-            setVoiceVariations(localVariations);
-            
-            if (localCount >= 3) {
-              recognition.onend = null; // Prevent auto-restart
-              recognitionRef.current = null;
-              
-              try {
-                recognition.stop();
-              } catch(e) {}
-              
-              setTimeout(() => {
-                handleFinish(localVariations);
-              }, 1500);
-            }
-         }
-      }
-    };
-
-    recognition.onerror = (event: any) => {
-      if (event.error !== 'no-speech' && event.error !== 'aborted') {
-        console.error("Speech error", event.error);
-        setIsListening(false);
-      }
-    };
-
-    recognition.onend = () => {
-      if (localCount < 3 && recognitionRef.current) {
-        setTimeout(() => {
-          try { 
-            recognitionRef.current?.start(); 
-          } catch(e){
-            console.error(e);
-          }
-        }, 100);
-      }
-    };
-
-    try {
-      recognition.start();
-      recognitionRef.current = recognition;
-    } catch(err) {
-      console.error(err);
-    }
-  };
-
+  // Redirección automática si ya está todo listo
   useEffect(() => {
-    return () => {
-      if (recognitionRef.current) {
-        recognitionRef.current.onend = null;
-        recognitionRef.current.stop();
+    if (user && profile) {
+      if (profile.onboarded && profile.analyCalibrated) {
+        onComplete(profile);
+      } else if (!profile.onboarded) {
+        setStep(2);
+      } else if (!profile.analyCalibrated) {
+        setStep(3);
       }
-    };
-  }, []);
+    }
+  }, [user, profile]);
 
-  const handleFinish = async (variations: string[] = voiceVariations) => {
-    if(user) {
-      try {
-        const userRef = doc(db, 'users', user.uid);
-        
-        const updates = {
-          occupation,
-          onboarded: true,
-          analyCalibrated: true,
-          voiceVariations: variations,
-          updatedAt: serverTimestamp()
-        };
-        
-        // Ensure doc is created if it didn't exist
-        await updateDoc(userRef, updates).catch(async () => {
-          const { setDoc } = await import('firebase/firestore');
-          await setDoc(userRef, { ...updates, email: user.email, uid: user.uid, role: 'student' }, { merge: true });
-        });
-        
-        const updatedProfile = { 
-          ...(profile || {
-             uid: user.uid,
-             email: user.email,
-             role: 'student',
-             createdAt: new Date().toISOString()
-          }), 
-          occupation, 
-          onboarded: true, 
-          analyCalibrated: true,
-          voiceVariations: variations
-        } as UserProfile;
-        
-        localStorage.setItem('analy_user_profile', JSON.stringify(updatedProfile));
-        onComplete(updatedProfile);
-      } catch (error) {
-        console.error("Failed to update profile", error);
-        // Fallback robusto local si falla Firebase
-        const fallbackProfile = { ...(profile || {}), occupation, onboarded: true, analyCalibrated: true, voiceVariations: variations } as UserProfile;
-        onComplete(fallbackProfile);
+  const handleIdentification = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (isProcessing) return;
+    setError('');
+    setIsProcessing(true);
+    const isMaster = email.toLowerCase().trim() === 'joe12882@gmail.com';
+    
+    try {
+      if (isNewStudent) {
+        if (!firstName) {
+          setIsProcessing(false);
+          return setError('Dime tu nombre para empezar.');
+        }
+        await signUpWithEmail(email, firstName, occupation);
+        // Step 3 is set automatically if successful or can be forced
+        setStep(3); 
+      } else {
+        await signInWithEmail(email, password);
       }
-    } else {
-      // Offline fallback
-      onComplete({ occupation, onboarded: true, analyCalibrated: true, voiceVariations: variations, role: 'student', uid: 'demo', email: 'demo@demo.com' } as unknown as UserProfile);
+    } catch (err: any) {
+      console.error("Auth Decision Flow:", err.code, err.message);
+      
+      // Fallback para alumnos nuevos: invalid-credential suele significar "usuario no encontrado" en alumnos
+      const isUserNotFound = err.code === 'auth/user-not-found' || 
+                            err.code === 'auth/invalid-credential' || 
+                            err.message?.includes('user-not-found') ||
+                            err.message === 'FRESH_USER';
+
+      if (isUserNotFound && !isMaster && !isNewStudent) {
+        setIsNewStudent(true);
+        setError('Email no reconocido. Completa tus datos para registrarte.');
+        setIsProcessing(false);
+        return;
+      }
+
+      if (err.code?.includes('password') || err.code?.includes('credential') || err.message?.toLowerCase().includes('password')) {
+        setError(isMaster ? 'Contraseña Master incorrecta. Verifica y reintenta.' : 'Credenciales no válidas.');
+      } else if (err.code === 'auth/network-request-failed') {
+        setError('Error de red. Revisa tu internet.');
+      } else {
+        setError(`Error: ${err.code || 'Conexión inestable'}`);
+      }
+    } finally {
+      setIsProcessing(false);
+    }
+  };
+
+  const handleRegister = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (isProcessing) return;
+    if (!firstName) return setError('Dime tu nombre para empezar.');
+    setIsProcessing(true);
+    try {
+      await signUpWithEmail(email, firstName, occupation);
+      setStep(3);
+    } catch (err) {
+      setError('Error al crear perfil.');
+    } finally {
+      setIsProcessing(false);
+    }
+  };
+
+  const handleFinishCalibration = async () => {
+    if (!user || isProcessing) return;
+    setIsProcessing(true);
+    try {
+      await updateDoc(doc(db, 'users', user.uid), { 
+        analyCalibrated: true, 
+        updatedAt: serverTimestamp() 
+      });
+      onComplete({ ...profile!, analyCalibrated: true } as any);
+    } catch (err) {
+      setError('Error al guardar calibración.');
+    } finally {
+      setIsProcessing(false);
     }
   };
 
   return (
-    <div className="fixed inset-0 bg-[#0F0F0F] z-[100] flex items-center justify-center p-6">
-      <div className="absolute top-12 left-0 right-0 flex justify-center gap-1.5 px-10">
-        {[1, 2, 3].map((s) => (
-          <div 
-            key={s} 
-            className={`h-1 flex-1 rounded-full transition-all duration-500 ${
-              step >= s ? 'bg-[#00F0FF] shadow-[0_0_10px_#00F0FF]' : 'bg-white/10'
-            }`} 
-          />
-        ))}
-      </div>
+    <div className="fixed inset-0 bg-[#0F0F0F] z-[100] flex flex-col items-center justify-start sm:justify-center p-6 overflow-y-auto">
+      <div className="absolute inset-0 bg-[radial-gradient(circle_at_center,rgba(0,240,255,0.05)_0%,transparent_70%)] pointer-events-none" />
+
+      {/* Loader de Video mientras se procesa la transición final o registro */}
+      {isProcessing && (
+        <div key="onboarding-processing-overlay" className="absolute inset-0 z-[110] bg-[#0F0F0F] flex flex-col items-center justify-center p-6 text-center space-y-12">
+          <div key="onboarding-shroud-bg" className="absolute inset-0 bg-[radial-gradient(circle_at_center,rgba(0,240,255,0.1)_0%,transparent_70%)]" />
+          
+          <div key="onboarding-processing-video-container" className="relative z-10 w-64 h-64 md:w-80 md:h-80 rounded-full overflow-hidden border-2 border-teal-500 shadow-[0_0_50px_rgba(0,240,255,0.4)] bg-black animate-in fade-in zoom-in duration-500">
+            <video
+              key="onboarding-processing-video"
+              src="/intro_anali.mp4"
+              autoPlay
+              muted
+              loop
+              playsInline
+              className="w-full h-full object-cover"
+            />
+          </div>
+
+          <div key="onboarding-processing-status" className="relative z-10 flex flex-col items-center gap-6 max-w-sm">
+            <Loader2 key="onboarding-processing-spinner" className="animate-spin text-teal-400" size={48} />
+            <p key="onboarding-processing-text" className="text-teal-400 font-black uppercase tracking-[0.3em] text-xs leading-relaxed animate-pulse">
+              {email.toLowerCase().trim() === 'joe12882@gmail.com' 
+                ? 'Sincronizando con Analí...' 
+                : 'Analí está preparando tu aula técnica...'}
+            </p>
+          </div>
+        </div>
+      )}
 
       <AnimatePresence mode="wait">
         {step === 1 && (
-          <motion.div
-            key="step1"
-            initial={{ opacity: 0, x: 20 }}
-            animate={{ opacity: 1, x: 0 }}
-            exit={{ opacity: 0, x: -20 }}
-            className="w-full max-w-sm space-y-8"
-          >
-            <div className="space-y-4 text-center">
-              <div className="w-16 h-16 bg-[#00F0FF]/10 rounded-2xl flex items-center justify-center border border-[#00F0FF]/30 mx-auto">
-                <User className="text-[#00F0FF]" size={32} />
+          <motion.div key="step-1" initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -10 }} className="w-full max-w-sm space-y-6 relative my-auto py-10">
+            <div className="text-center space-y-4">
+              <div className="relative w-24 h-24 mx-auto">
+                <AnimatePresence mode="wait">
+                  {!videoFinished && (
+                    <motion.div 
+                      key="onboarding-video-wrapper"
+                      initial={{ opacity: 1 }}
+                      exit={{ opacity: 0 }}
+                      className="absolute inset-0 z-10 rounded-full overflow-hidden border-2 border-teal-500 shadow-lg"
+                    >
+                      <video
+                        ref={videoRef}
+                        src="/intro_anali.mp4"
+                        autoPlay
+                        muted
+                        playsInline
+                        className="w-full h-full object-cover"
+                        onEnded={() => setVideoFinished(true)}
+                        onError={() => setVideoFinished(true)}
+                      />
+                    </motion.div>
+                  )}
+                </AnimatePresence>
+                <AnaliAvatar 
+                  key="onboarding-happy-avatar"
+                  emotion="happy" 
+                  size="md" 
+                  className={`mx-auto transition-all duration-1000 ${videoFinished ? 'opacity-100 scale-100' : 'opacity-0 scale-90'}`}
+                />
               </div>
-              <h2 className="text-3xl font-black italic uppercase italic tracking-tighter text-white">Identificación</h2>
-              <p className="text-gray-500 text-sm tracking-wide">Inicia sesión con Google para sincronizar tus datos.</p>
+              <h2 className="text-3xl font-black italic uppercase tracking-tighter text-white">ANALI</h2>
+              <p className="text-white/40 text-[10px] uppercase tracking-widest leading-relaxed">Aprende inglés a tu ritmo</p>
             </div>
-            <div className="space-y-6">
-              <button 
-                onClick={handleLoginNext}
-                disabled={isSigningIn}
-                className="w-full bg-white text-black py-5 rounded-2xl font-black uppercase tracking-widest text-xs flex items-center justify-center gap-3 disabled:opacity-50 transition-all active:scale-95"
-              >
-                {isSigningIn ? "Conectando..." : "Sign in with Google"} <ArrowRight size={18} />
+
+            {error && <div className="bg-rose-500/10 border border-rose-500/50 text-rose-500 p-3 rounded-xl text-[10px] font-bold text-center uppercase tracking-wider">{error}</div>}
+
+            <form onSubmit={handleIdentification} className="space-y-4">
+              <div className="relative">
+                <InputField label="Email" icon={Mail} type="email" value={email} onChange={setEmail} placeholder="tu@correo.com" required />
+              </div>
+              
+              <AnimatePresence>
+                {isNewStudent && (
+                  <motion.div
+                    key="new-student-fields"
+                    initial={{ height: 0, opacity: 0 }}
+                    animate={{ height: 'auto', opacity: 1 }}
+                    exit={{ height: 0, opacity: 0 }}
+                    className="space-y-4 pt-2 overflow-hidden"
+                  >
+                    <InputField label="¿Cómo te llamas?" icon={User} value={firstName} onChange={setFirstName} placeholder="Tu nombre" required />
+                    
+                    <div className="space-y-1.5">
+                      <label className="text-[10px] font-black uppercase tracking-widest text-[#00F0FF]/60 ml-2">Tu Oficio</label>
+                      <select 
+                        value={occupation} 
+                        onChange={(e) => setOccupation(e.target.value)} 
+                        className="w-full bg-[#1A1A1A] border border-white/10 rounded-2xl py-4 px-4 text-white font-medium focus:outline-none focus:border-[#00F0FF] appearance-none cursor-pointer text-sm"
+                      >
+                        {OCCUPATIONS.map(occ => <option key={occ} value={occ} className="bg-[#1A1A1A]">{occ}</option>)}
+                      </select>
+                      <p className="text-[8px] text-teal-400/50 uppercase font-bold tracking-widest pl-2">Analí adaptará tu aula a esta área</p>
+                    </div>
+                  </motion.div>
+                )}
+              </AnimatePresence>
+              
+              <AnimatePresence>
+                {email.toLowerCase().trim() === 'joe12882@gmail.com' && (
+                  <motion.div 
+                    key="master-password-field"
+                    initial={{ height: 0, opacity: 0 }} 
+                    animate={{ height: 'auto', opacity: 1 }} 
+                    exit={{ height: 0, opacity: 0 }} 
+                    className="overflow-hidden"
+                  >
+                    <div className="relative pt-4">
+                      <InputField label="Clave Master" icon={Lock} type={showPassword ? "text" : "password"} value={password} onChange={setPassword} placeholder="******" required />
+                      <button type="button" onClick={() => setShowPassword(!showPassword)} className="absolute right-4 bottom-4 text-white/20 hover:text-[#00F0FF]">
+                        {showPassword ? <EyeOff size={16} /> : <Eye size={16} />}
+                      </button>
+                    </div>
+                  </motion.div>
+                )}
+              </AnimatePresence>
+
+              <button disabled={isProcessing} className="w-full bg-[#00F0FF] text-[#0F0F0F] py-5 rounded-2xl font-black uppercase tracking-widest text-[10px] flex items-center justify-center gap-2 shadow-[0_10px_20px_rgba(0,240,255,0.1)] active:scale-95 transition-all disabled:opacity-50">
+                {isProcessing ? 'Sincronizando...' : (isNewStudent ? 'Registrar y Entrar' : 'Entrar ahora')} <ArrowRight size={16} />
               </button>
-            </div>
+            </form>
           </motion.div>
         )}
 
         {step === 2 && (
-          <motion.div
-            key="step2"
-            initial={{ opacity: 0, x: 20 }}
-            animate={{ opacity: 1, x: 0 }}
-            exit={{ opacity: 0, x: -20 }}
-            className="w-full max-w-sm space-y-8"
-          >
-            <div className="space-y-4">
-              <div className="w-12 h-12 bg-[#00F0FF]/10 rounded-2xl flex items-center justify-center border border-[#00F0FF]/30">
-                <Briefcase className="text-[#00F0FF]" size={24} />
-              </div>
-              <h2 className="text-3xl font-black italic uppercase italic tracking-tighter text-white">¿A qué te dedicas?</h2>
-              <p className="text-gray-500 text-sm tracking-wide">Adaptaremos el vocabulario técnico a tu labor.</p>
+          <motion.div key="step-2" initial={{ opacity: 0, x: 20 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: -20 }} className="w-full max-w-sm space-y-6 relative my-auto py-10">
+            <div className="text-center space-y-2">
+              <h2 className="text-2xl font-black uppercase italic text-white">¡Hola! Soy Analy</h2>
+              <p className="text-white/40 text-[10px] uppercase tracking-widest">Vamos a configurar tu perfil táctico</p>
             </div>
-            <div className="space-y-6">
-              <div className="grid gap-3 max-h-[40vh] overflow-y-auto pr-2 custom-scrollbar">
-                {OCCUPATIONS.map((occ) => (
-                  <button
-                    key={occ}
-                    onClick={() => setOccupation(occ)}
-                    className={`p-4 rounded-xl text-left border transition-all ${
-                      occupation === occ 
-                        ? 'bg-[#00F0FF]/10 border-[#00F0FF] text-[#00F0FF]' 
-                        : 'bg-[#1A1A1A] border-white/5 text-gray-400 opacity-60'
-                    }`}
-                  >
-                    <span className="font-bold uppercase tracking-widest text-[10px] mono-display">{occ}</span>
-                  </button>
-                ))}
+
+            <form onSubmit={handleRegister} className="space-y-4">
+              <InputField label="¿Cómo te llamas?" icon={User} value={firstName} onChange={setFirstName} placeholder="Escribe tu nombre" required />
+              
+              <div className="space-y-1.5">
+                <label className="text-[10px] font-black uppercase tracking-widest text-[#00F0FF]/60 ml-2">Tu Oficio</label>
+                <select value={occupation} onChange={(e) => setOccupation(e.target.value)} className="w-full bg-[#1A1A1A] border border-white/10 rounded-2xl py-4 px-4 text-white font-medium focus:outline-none focus:border-[#00F0FF] appearance-none cursor-pointer">
+                  {OCCUPATIONS.map(occ => <option key={occ} value={occ}>{occ}</option>)}
+                </select>
               </div>
-              <button 
-                onClick={() => setStep(3)}
-                className="w-full bg-[#00F0FF] text-[#0F0F0F] py-5 rounded-2xl font-black uppercase tracking-widest text-xs flex items-center justify-center gap-2 transition-all active:scale-95"
-              >
-                Confirmar <CheckCircle size={18} />
+
+              <button disabled={isProcessing} className="w-full bg-[#00F0FF] text-[#0F0F0F] py-5 rounded-2xl font-black uppercase tracking-widest text-[10px] flex items-center justify-center gap-2 active:scale-95 transition-all">
+                {isProcessing ? 'Creando...' : 'Comenzar Aprendizaje'} <ArrowRight size={16} />
               </button>
-            </div>
+              
+              <button type="button" onClick={() => setStep(1)} className="w-full text-[10px] text-white/20 uppercase font-black tracking-widest hover:text-white flex items-center justify-center gap-1">
+                <ChevronLeft size={12} /> Volver
+              </button>
+            </form>
           </motion.div>
         )}
 
         {step === 3 && (
-          <motion.div
-            key="step3"
-            initial={{ opacity: 0, scale: 0.9 }}
-            animate={{ opacity: 1, scale: 1 }}
-            exit={{ opacity: 0, scale: 1.1 }}
-            className="w-full max-w-sm space-y-8 text-center"
-          >
-            <div className="space-y-4 flex flex-col items-center">
-              <div className="w-20 h-20 bg-[#00F0FF]/10 rounded-full flex items-center justify-center border-4 border-[#00F0FF]/30 relative listening-pulse">
-                <Mic className="text-[#00F0FF]" size={32} />
-                <Sparkles size={16} className="absolute -top-1 -right-1 text-[#00F0FF] animate-bounce" />
-              </div>
-              <h2 className="text-3xl font-black uppercase italic tracking-tighter text-white">Entrenando a Analy</h2>
-              <p className="text-gray-500 text-sm tracking-wide">Para calibrar su sistema de escucha táctica, di su nombre claramente 3 veces.</p>
+          <motion.div key="step-3" initial={{ opacity: 0, scale: 0.9 }} animate={{ opacity: 1, scale: 1 }} className="w-full max-w-xs space-y-8 text-center relative my-auto py-10">
+            <div className="space-y-4">
+              <AnaliAvatar emotion="thinking" size="lg" className="mx-auto" />
+              <h2 className="text-2xl font-black uppercase italic text-white leading-tight">Calibración de Voz</h2>
+              <p className="text-white/40 text-xs font-medium">Analy está ajustando sus sensores para tu tono de voz.</p>
             </div>
             
-            {/* Visual Progress Bar 1/3 */}
-            <div className="w-full bg-white/5 rounded-full h-4 overflow-hidden border border-white/10 relative">
-               <motion.div 
-                 className="absolute left-0 top-0 bottom-0 bg-[#00F0FF]"
-                 initial={{ width: 0 }}
-                 animate={{ width: `${(analyCount / 3) * 100}%` }}
-               />
-               <div className="absolute inset-0 flex items-center justify-center text-[10px] font-black mix-blend-difference text-white">
-                 {analyCount} / 3
-               </div>
-            </div>
-
-            <div className="space-y-6">
-              <div className="text-[10px] text-[#00F0FF] uppercase font-black tracking-[0.2em] h-4">
-                {!isListening && "Presiona para activar micro"}
-                {isListening && analyCount === 0 && "PASO 1: Di 'Analy'..."}
-                {isListening && analyCount === 1 && "PASO 2: Repítelo de nuevo..."}
-                {isListening && analyCount === 2 && "PASO 3: Una vez más para confirmar..."}
-                {analyCount >= 3 && "¡VOZ DE ANALÍ SINCRONIZADA!"}
-              </div>
-              
-              {!isListening && analyCount < 3 ? (
-                <button 
-                  onClick={startCalibration}
-                  className="w-full bg-[#00F0FF] text-[#0F0F0F] py-5 rounded-2xl font-black uppercase tracking-widest text-xs flex flex-col items-center justify-center gap-1 transition-all active:scale-95 shadow-[0_0_30px_#00F0FF44]"
-                >
-                  <span>Iniciar Calibración</span>
-                  <span className="text-[8px] opacity-50">(Dar permisos de micrófono)</span>
-                </button>
-              ) : analyCount >= 3 ? (
-                 <button 
-                  onClick={() => handleFinish(voiceVariations)}
-                  className="w-full bg-[#00F0FF] text-[#0F0F0F] py-5 rounded-2xl font-black uppercase tracking-widest text-xs flex flex-col items-center justify-center gap-1 transition-all active:scale-95 shadow-[0_0_30px_#00F0FF44] animate-pulse"
-                >
-                  <span>ENTRAR A ANALÍ</span>
-                </button>
-              ) : (
-                <div className="w-full bg-[#1A1A1A] text-[#00F0FF] py-5 rounded-2xl font-black uppercase tracking-widest text-xs flex flex-col items-center justify-center gap-2 border border-[#00F0FF] listening-pulse">
-                  <span>
-                    Escuchando en vivo...
-                  </span>
-                </div>
-              )}
-            </div>
+            <button onClick={handleFinishCalibration} className="w-full bg-[#00F0FF] text-[#0F0F0F] py-5 rounded-2xl font-black uppercase tracking-widest text-[10px] flex items-center justify-center gap-2 shadow-[0_10px_20px_rgba(0,240,255,0.1)]">
+              Sincronizar Voz <CheckCircle size={16} />
+            </button>
           </motion.div>
         )}
       </AnimatePresence>
