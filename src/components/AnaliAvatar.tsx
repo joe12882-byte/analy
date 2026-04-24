@@ -51,7 +51,7 @@ export default function AnaliAvatar({ emotion = 'neutral', className, size = 'md
           <div className="absolute inset-0 border-[6px] border-amber-600/30 pointer-events-none z-10" />
           
           <div 
-            className="w-full h-full transition-all duration-1000 ease-in-out"
+            className="w-full h-full transition-all duration-1000 ease-in-out bg-slate-100"
             style={{
               backgroundImage: `url(${collageImg})`,
               backgroundSize: '200% 300%', // 2 columnas, 3 filas

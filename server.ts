@@ -11,9 +11,42 @@ const __dirname = path.dirname(__filename);
 
 async function startServer() {
   const app = express();
-  const PORT = parseInt(process.env.PORT || '3000', 10);
+  const PORT = 3000;
 
   app.use(express.json());
+
+  // API Route: Debug File System Structure
+  app.get("/api/debug-fs", async (req, res) => {
+    try {
+      const { readdirSync, existsSync } = await import("fs");
+      const structure: any = {};
+      
+      const checkDir = (dir: string, label: string) => {
+        const fullPath = path.resolve(__dirname, dir);
+        if (existsSync(fullPath)) {
+          structure[label] = {
+            path: fullPath,
+            files: readdirSync(fullPath).slice(0, 50) // limit to 50
+          };
+        } else {
+          structure[label] = "NOT_FOUND: " + fullPath;
+        }
+      };
+
+      checkDir("dist", "dist_folder");
+      checkDir("dist/assets", "dist_assets_folder");
+      checkDir("public", "public_folder");
+      checkDir("src/assets/images", "src_images_folder");
+
+      res.json({
+        cwd: process.cwd(),
+        __dirname,
+        structure
+      });
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
 
   // API Route: Proxy para ElevenLabs (Oculta la API Key)
   app.post("/api/tts/elevenlabs", async (req, res) => {
@@ -95,8 +128,25 @@ async function startServer() {
     });
     app.use(vite.middlewares);
   } else {
-    const distPath = path.join(process.cwd(), 'dist');
-    app.use(express.static(distPath));
+    const distPath = path.resolve(__dirname, 'dist');
+    const publicPath = path.resolve(__dirname, 'public');
+    
+    // Serve static files from dist first (Vite build output)
+    app.use(express.static(distPath, {
+      maxAge: '1d',
+      setHeaders: (res, path) => {
+        if (path.endsWith('.mp4')) {
+          res.setHeader('Accept-Ranges', 'bytes');
+          res.setHeader('Content-Type', 'video/mp4');
+        }
+      }
+    }));
+    
+    // Backup: serve from public directly if dist is missing something
+    app.use(express.static(publicPath, {
+      maxAge: '1d'
+    }));
+    
     app.get('*', (req, res) => {
       res.sendFile(path.join(distPath, 'index.html'));
     });

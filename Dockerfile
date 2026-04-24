@@ -1,18 +1,22 @@
-# Dockerfile para Anali en Zeabur
 FROM node:22-slim
 
 WORKDIR /app
 
-# Instalar dependencias
+# Dependencias
 COPY package*.json ./
 RUN npm install
 
-# Copiar código y compilar frontend
+# Código
 COPY . .
+
+# Build
 RUN npm run build
 
-# Exponer el puerto asignado por Zeabur (usualmente usa la env PORT)
+# Entorno
+ENV NODE_ENV=production
+ENV PORT=3000
+
 EXPOSE 3000
 
-# Iniciar el servidor de producción
+# Start
 CMD ["npm", "start"]
