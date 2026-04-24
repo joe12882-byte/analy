@@ -271,15 +271,24 @@ export default function App() {
   const videoRef = useRef<HTMLVideoElement>(null);
   const [showSkip, setShowSkip] = useState(false);
 
+  // Hook 1: Skip Timer
   useEffect(() => {
     if (loading) {
-      const timer = setTimeout(() => setShowSkip(true), 6000);
+      const timer = setTimeout(() => setShowSkip(true), 3000);
       return () => clearTimeout(timer);
     } else {
       setShowSkip(false);
     }
   }, [loading]);
 
+  // Hook 2: Force Start Cleanup
+  useEffect(() => {
+    if (!loading && safeStorage.getItem('force_app_start')) {
+      safeStorage.removeItem('force_app_start');
+    }
+  }, [loading]);
+
+  // 1. Loading Screen (Early Return AFTER all hooks)
   if (loading && !safeStorage.getItem('force_app_start')) {
     return (
       <div key="global-app-loading" className="min-h-screen bg-[#0F0F0F] flex items-center justify-center p-6 relative overflow-hidden">
@@ -329,16 +338,12 @@ export default function App() {
     );
   }
 
-  // Clear force start flag when app successfully loads
-  if (!loading && safeStorage.getItem('force_app_start')) {
-    safeStorage.removeItem('force_app_start');
-  }
-
-  // Show onboarding if no user OR if user exists but profile says not onboarded
+  // 2. Onboarding (Return AFTER hooks)
   if (!user || (profile && !profile.onboarded)) {
     return <Onboarding onComplete={() => refreshProfile()} />;
   }
 
+  // 3. Main App (Final Return)
   return (
     <BrowserRouter>
       <PrivateAppRoutes />

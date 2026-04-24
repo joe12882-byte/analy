@@ -48,26 +48,33 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   // Use callback for loadProfile to keep identity stable
   const loadProfile = useCallback(async (u: User) => {
     if (!isMounted.current) return;
-    setLoading(true);
     
     // Safety timeout to prevent being stuck forever if Firestore hangs
     const safetyTimeout = setTimeout(() => {
-      if (isMounted.current && loading) {
-        console.warn("Profile loading timed out, proceeding anyway...");
+      if (isMounted.current) {
+        console.warn("Safety trigger: forzando entrada por demora en base de datos");
         setLoading(false);
       }
-    }, 8000);
+    }, 5000);
 
     try {
       const userRef = doc(db, 'users', u.uid);
-      const snap = await getDocFromServer(userRef).catch(() => getDoc(userRef));
+      // Try to get from server but fallback to cache immediately if it fails
+      // This is crucial during Quota issues
+      let snap;
+      try {
+        snap = await getDocFromServer(userRef);
+      } catch (e) {
+        console.warn("Firestore Server access blocked (likely Quota), trying cache...", e);
+        snap = await getDoc(userRef);
+      }
       
       if (!isMounted.current) return;
 
       if (snap.exists()) {
         const data = snap.data() as UserProfile;
         if (u.email?.toLowerCase() === ADMIN_EMAIL.toLowerCase()) data.role = 'master';
-        setProfile(data);
+        setProfile({ ...data, uid: u.uid });
       } else {
         const isMaster = u.email?.toLowerCase() === ADMIN_EMAIL.toLowerCase();
         const freshProfile = {
@@ -80,7 +87,14 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           createdAt: serverTimestamp()
         };
 
-        await setDoc(userRef, freshProfile);
+        // If we have quota issues, this write might fail. 
+        // We should handle it so the app doesn't crash.
+        try {
+          await setDoc(userRef, freshProfile);
+        } catch (e) {
+          console.error("Failed to create profile (Quota?)", e);
+        }
+
         if (!isMounted.current) return;
         
         setProfile({
@@ -95,19 +109,17 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       clearTimeout(safetyTimeout);
       if (isMounted.current) setLoading(false);
     }
-  }, [loading]);
+  }, []); // REMOVED [loading] dependency to break the loop!
 
+  // Safety timeout: if after 10 seconds we are still loading, force it to false
+  // to allow the app to at least show the login/onboarding screen if Firebase is stalling
   useEffect(() => {
     isMounted.current = true;
-
-    // Safety timeout: if after 10 seconds we are still loading, force it to false
-    // to allow the app to at least show the login/onboarding screen if Firebase is stalling
-    const globalTimeout = setTimeout(() => {
-      if (isMounted.current && loading) {
-        console.warn("Global Auth timeout triggered");
-        setLoading(false);
-      }
-    }, 12000);
+    
+    // Check loading state periodically or use a more robust timeout
+    const checkTimeout = setTimeout(() => {
+      setLoading(false);
+    }, 8000);
 
     const unsub = onAuthStateChanged(auth, (u) => {
       if (!isMounted.current) return;
@@ -124,7 +136,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     });
 
     return () => {
-      clearTimeout(globalTimeout);
+      clearTimeout(checkTimeout);
       isMounted.current = false;
       unsub();
     };
