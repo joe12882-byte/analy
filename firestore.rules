@@ -115,11 +115,40 @@ service cloud.firestore {
       allow update: if isVerified() && request.auth.uid == userId && 
         isValidUser(incoming()) && (
           isAdmin() || 
-          (incoming().diff(existing()).affectedKeys().hasOnly(['displayName', 'photoURL', 'occupation', 'onboarded', 'analyCalibrated', 'updatedAt', 'support_code']) &&
+          (incoming().diff(existing()).affectedKeys().hasOnly(['displayName', 'photoURL', 'occupation', 'onboarded', 'analyCalibrated', 'updatedAt', 'support_code', 'conversations_count', 'saved_objects_count', 'last_login']) &&
            incoming().updatedAt == request.time)
         );
         
       allow delete: if isAdmin();
+
+      // LIBRARY Subcollection
+      function isValidLibraryItem(data) {
+        return data.keys().hasAll(['topic', 'content', 'category', 'date']) &&
+               data.topic is string && data.topic.size() <= 200 &&
+               data.content is string && data.content.size() <= 2000 &&
+               data.category is string && data.category.size() <= 50 &&
+               data.date is timestamp && (
+                 !('sourceType' in data) || data.sourceType is string
+               ) && (
+                 !('original' in data) || data.original is string
+               );
+      }
+
+      match /library/{itemId} {
+        allow read: if isSignedIn() && (request.auth.uid == userId || isAdmin());
+        allow create: if isVerified() && request.auth.uid == userId && isValidId(itemId) && 
+          isValidLibraryItem(incoming()) && incoming().date == request.time;
+        allow update: if isVerified() && request.auth.uid == userId && isValidLibraryItem(incoming());
+        allow delete: if isVerified() && request.auth.uid == userId;
+      }
+    }
+
+    // Roleplay Sessions & Shadow Attempts (Safety catch-all for student progress)
+    match /roleplay_sessions/{id} {
+      allow read, write: if isSignedIn() && (resource.data.userId == request.auth.uid || request.resource.data.userId == request.auth.uid || isAdmin());
+    }
+    match /shadow_attempts/{id} {
+      allow read, write: if isSignedIn() && (resource.data.userId == request.auth.uid || request.resource.data.userId == request.auth.uid || isAdmin());
     }
 
     // ChatSession Validator

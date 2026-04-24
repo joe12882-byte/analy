@@ -269,8 +269,18 @@ function PrivateAppRoutes() {
 export default function App() {
   const { user, profile, loading, refreshProfile } = useAuth();
   const videoRef = useRef<HTMLVideoElement>(null);
+  const [showSkip, setShowSkip] = useState(false);
 
-  if (loading) {
+  useEffect(() => {
+    if (loading) {
+      const timer = setTimeout(() => setShowSkip(true), 6000);
+      return () => clearTimeout(timer);
+    } else {
+      setShowSkip(false);
+    }
+  }, [loading]);
+
+  if (loading && !safeStorage.getItem('force_app_start')) {
     return (
       <div key="global-app-loading" className="min-h-screen bg-[#0F0F0F] flex items-center justify-center p-6 relative overflow-hidden">
         {/* Fondo decorativo */}
@@ -301,10 +311,27 @@ export default function App() {
                 {user?.email === ADMIN_EMAIL ? 'Alistando tus herramientas de inglés técnico' : 'Preparando tu entrenamiento de inglés técnico'}
               </p>
             </div>
+            
+            {showSkip && (
+              <button 
+                onClick={() => {
+                  safeStorage.setItem('force_app_start', 'true');
+                  window.location.reload();
+                }}
+                className="mt-4 px-6 py-3 bg-white/10 backdrop-blur-md rounded-full text-white/50 border border-white/10 text-[9px] font-black uppercase tracking-widest hover:text-white hover:bg-white/20 transition-all"
+              >
+                Saltar Sincronización
+              </button>
+            )}
           </div>
         </div>
       </div>
     );
+  }
+
+  // Clear force start flag when app successfully loads
+  if (!loading && safeStorage.getItem('force_app_start')) {
+    safeStorage.removeItem('force_app_start');
   }
 
   // Show onboarding if no user OR if user exists but profile says not onboarded

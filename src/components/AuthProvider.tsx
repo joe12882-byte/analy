@@ -49,6 +49,15 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const loadProfile = useCallback(async (u: User) => {
     if (!isMounted.current) return;
     setLoading(true);
+    
+    // Safety timeout to prevent being stuck forever if Firestore hangs
+    const safetyTimeout = setTimeout(() => {
+      if (isMounted.current && loading) {
+        console.warn("Profile loading timed out, proceeding anyway...");
+        setLoading(false);
+      }
+    }, 8000);
+
     try {
       const userRef = doc(db, 'users', u.uid);
       const snap = await getDocFromServer(userRef).catch(() => getDoc(userRef));
@@ -83,17 +92,31 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     } catch (e) {
       console.error("Critical Profile Error", e);
     } finally {
+      clearTimeout(safetyTimeout);
       if (isMounted.current) setLoading(false);
     }
-  }, []);
+  }, [loading]);
 
   useEffect(() => {
     isMounted.current = true;
+
+    // Safety timeout: if after 10 seconds we are still loading, force it to false
+    // to allow the app to at least show the login/onboarding screen if Firebase is stalling
+    const globalTimeout = setTimeout(() => {
+      if (isMounted.current && loading) {
+        console.warn("Global Auth timeout triggered");
+        setLoading(false);
+      }
+    }, 12000);
+
     const unsub = onAuthStateChanged(auth, (u) => {
       if (!isMounted.current) return;
       setUser(u);
       if (u) {
-        loadProfile(u).catch(e => console.error("Profile Load Failed", e));
+        loadProfile(u).catch(e => {
+          console.error("Profile Load Failed", e);
+          if (isMounted.current) setLoading(false);
+        });
       } else {
         setProfile(null);
         setLoading(false);
@@ -101,6 +124,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     });
 
     return () => {
+      clearTimeout(globalTimeout);
       isMounted.current = false;
       unsub();
     };
