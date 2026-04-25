@@ -168,7 +168,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     const res = await createUserWithEmailAndPassword(auth, emailLower, finalPass);
     await updateFirebaseProfile(res.user, { displayName: name });
 
-    const newProfile: UserProfile = {
+    const newProfile: Partial<UserProfile> = {
       uid: res.user.uid,
       email: emailLower,
       displayName: name,
@@ -176,14 +176,29 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       role: isMaster ? 'master' : 'student',
       onboarded: true,
       analyCalibrated: false,
-      createdAt: new Date().toISOString(),
       conversations_count: 0,
       saved_objects_count: 0,
       last_login: new Date().toISOString(),
       support_code: isMaster ? finalPass : 'STUDENT'
     };
-    await setDoc(doc(db, 'users', res.user.uid), newProfile);
-    setProfile(newProfile);
+    
+    // Check if onAuthStateChanged already created the profile
+    const userRef = doc(db, 'users', res.user.uid);
+    const snap = await getDoc(userRef);
+    
+    if (snap.exists()) {
+      await updateDoc(userRef, {
+        ...newProfile,
+        updatedAt: serverTimestamp()
+      });
+    } else {
+      await setDoc(userRef, {
+        ...newProfile,
+        createdAt: serverTimestamp()
+      });
+    }
+    
+    setProfile({ ...newProfile, createdAt: new Date().toISOString() } as UserProfile);
   };
 
   const changePassword = async (newPass: string) => {

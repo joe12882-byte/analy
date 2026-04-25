@@ -136,7 +136,7 @@ export default function UserLibrary() {
 
           <div className="grid gap-4 md:grid-cols-2">
             {results.extractedTips?.map((tip: any, i: number) => (
-              <div key={i} className="bg-white rounded-3xl p-6 shadow-sm border border-slate-100 flex flex-col justify-between group overflow-hidden">
+              <div key={`tip-${i}`} className="bg-white rounded-3xl p-6 shadow-sm border border-slate-100 flex flex-col justify-between group overflow-hidden">
                 <div className="flex items-center justify-between mb-4">
                   <h4 className="font-bold text-sm text-slate-800">{tip.topic}</h4>
                   <button 

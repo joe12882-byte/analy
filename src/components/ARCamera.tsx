@@ -243,7 +243,7 @@ export default function ARCamera() {
         {/* AR Overlays for Identify */}
         {frozenFrame && scanMode === 'identify' && detectedObjects.map((obj, i) => (
           <motion.div
-            key={i}
+            key={`obj-${i}`}
             initial={{ opacity: 0, scale: 0.8 }}
             animate={{ opacity: 1, scale: 1 }}
             className="absolute border-2 border-teal-400 bg-teal-400/20 rounded-lg shadow-lg"
@@ -259,7 +259,7 @@ export default function ARCamera() {
         {/* AR Overlays for Translate */}
         {frozenFrame && scanMode === 'translate' && textBlocks.map((block, i) => (
           <motion.div
-            key={i}
+            key={`txt-${i}`}
             initial={{ opacity: 0, scale: 0.9 }}
             animate={{ opacity: 1, scale: 1 }}
             className={`absolute bg-amber-500/90 backdrop-blur-md rounded-lg shadow-xl shadow-amber-500/20 flex flex-col items-center justify-center p-2 text-center border border-white/30 cursor-pointer overflow-hidden group ${selectedBlock === block ? 'ring-4 ring-white' : ''}`}
@@ -331,7 +331,7 @@ export default function ARCamera() {
             <div className="space-y-4">
               {scanMode === 'identify' ? (
                 detectedObjects.map((obj, i) => (
-                  <div key={i} className="bg-slate-50 p-4 rounded-3xl border border-slate-100 space-y-3">
+                  <div key={`id-obj-${i}`} className="bg-slate-50 p-4 rounded-3xl border border-slate-100 space-y-3">
                     <div className="flex justify-between items-start">
                       <div>
                         <h3 className="text-xl font-black text-slate-800">{obj.label_en}</h3>

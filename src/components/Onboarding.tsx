@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
-import { ArrowRight, User, Briefcase, CheckCircle, Mail, Lock, Eye, EyeOff, ChevronLeft, Loader2 } from 'lucide-react';
+import { ArrowRight, User, Briefcase, CheckCircle, Mail, Lock, Eye, EyeOff, ChevronLeft, Loader2, Mic } from 'lucide-react';
 import { UserProfile } from '../types';
 import { useAuth } from './AuthProvider';
 import { doc, updateDoc, serverTimestamp } from 'firebase/firestore';
@@ -301,15 +301,51 @@ export default function Onboarding({ onComplete }: OnboardingProps) {
         )}
 
         {step === 3 && (
-          <motion.div key="step-3" initial={{ opacity: 0, scale: 0.9 }} animate={{ opacity: 1, scale: 1 }} className="w-full max-w-xs space-y-8 text-center relative my-auto py-10">
+          <motion.div key="step-3" initial={{ opacity: 0, scale: 0.9 }} animate={{ opacity: 1, scale: 1 }} className="w-full max-w-sm space-y-8 text-center relative my-auto py-10">
             <div className="space-y-4">
-              <AnaliAvatar emotion="thinking" size="lg" className="mx-auto" />
-              <h2 className="text-2xl font-black uppercase italic text-white leading-tight">Calibración de Voz</h2>
-              <p className="text-white/40 text-xs font-medium">Analy está ajustando sus sensores para tu tono de voz.</p>
+              <AnaliAvatar emotion={isProcessing ? 'learning' : 'thinking'} size="lg" className="mx-auto" />
+              <h2 className="text-2xl font-black uppercase italic text-white leading-tight">Entrenamiento de Voz</h2>
+              <p className="text-white/40 text-xs font-medium">Analí necesita aprender tu acento y entonación. Lee despacio la siguiente frase para calibrar su IA con tu voz:</p>
             </div>
             
-            <button onClick={handleFinishCalibration} className="w-full bg-[#00F0FF] text-[#0F0F0F] py-5 rounded-2xl font-black uppercase tracking-widest text-[10px] flex items-center justify-center gap-2 shadow-[0_10px_20px_rgba(0,240,255,0.1)]">
-              Sincronizar Voz <CheckCircle size={16} />
+            <div className="bg-[#1A1A1A] border border-teal-500/30 p-6 rounded-3xl relative overflow-hidden">
+               <div className="absolute top-0 right-0 p-2 opacity-10"><Mic size={48} /></div>
+               <p className="text-teal-400 font-bold italic text-lg leading-relaxed relative z-10">
+                 "Hola Analí, estoy listo para aprender inglés contigo."
+               </p>
+            </div>
+            
+            {error && <div className="text-rose-400 text-xs font-bold">{error}</div>}
+
+            <button 
+              onClick={() => {
+                if(isProcessing) return;
+                setIsProcessing(true);
+                const SpeechRecognition = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
+                if (!SpeechRecognition) {
+                   handleFinishCalibration(); // Skip if unsupported
+                   return;
+                }
+                const recognition = new SpeechRecognition();
+                recognition.lang = 'es-US';
+                recognition.onresult = () => {
+                   recognition.stop();
+                   handleFinishCalibration();
+                };
+                recognition.onerror = () => {
+                   setError("No te escuché bien. Inténtalo de nuevo.");
+                   setIsProcessing(false);
+                }
+                recognition.start();
+              }} 
+              disabled={isProcessing}
+              className={`w-full ${isProcessing ? 'bg-teal-500/20 text-teal-400' : 'bg-[#00F0FF] text-[#0F0F0F] shadow-[0_10px_20px_rgba(0,240,255,0.1)]'} py-5 rounded-2xl font-black uppercase tracking-widest text-[10px] flex items-center justify-center gap-2 transition-all active:scale-95`}
+            >
+              {isProcessing ? (
+                <><span className="w-2 h-2 bg-teal-400 rounded-full animate-ping mr-2"></span> Escuchándote...</>
+              ) : (
+                <>Presiona aquí y lee la frase <Mic size={16} /></>
+              )}
             </button>
           </motion.div>
         )}

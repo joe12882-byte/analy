@@ -186,6 +186,7 @@ export default function ActionDashboard() {
 
   const recognitionRef = React.useRef<any>(null);
   const isAnalyActiveRef = React.useRef(false);
+  const analyTimeoutRef = React.useRef<NodeJS.Timeout | null>(null);
 
   const startSpeechAPI = (onResult: (text: string, isFinal: boolean) => void, onEnd: () => void) => {
     const SpeechRecognition = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
@@ -194,16 +195,16 @@ export default function ActionDashboard() {
       return null;
     }
     const recognition = new SpeechRecognition();
-    recognition.lang = learningMode === 'shadow' ? 'en-US' : 'es-ES'; // Si está en shadow, escucha en inglés
+    recognition.lang = learningMode === 'shadow' ? 'en-US' : 'es-US'; // Si está en shadow, escucha en inglés
     recognition.continuous = true;
     recognition.interimResults = true;
     
     recognition.onresult = (event: any) => {
       let fullTranscript = '';
       let isFinalResult = false;
-      for (let i = event.resultIndex; i < event.results.length; ++i) {
+      for (let i = 0; i < event.results.length; ++i) {
         fullTranscript += event.results[i][0].transcript;
-        if (event.results[i].isFinal) isFinalResult = true;
+        if (event.results[i].isFinal && i === event.results.length - 1) isFinalResult = true;
       }
       if (fullTranscript.trim().length > 0) {
          onResult(fullTranscript, isFinalResult);
@@ -266,16 +267,21 @@ export default function ActionDashboard() {
         if (lastMatchIndex !== -1) {
           let phrase = lowerText.substring(lastMatchIndex + lastTrigger.length).trim();
           
+          if (analyTimeoutRef.current) clearTimeout(analyTimeoutRef.current);
+          
           if (isFinal) {
             if (phrase.length > 2) {
-              setInterimTranscript(`Procesando: "${phrase}"...`);
-              isAnalyActiveRef.current = false; 
-              recognitionRef.current?.stop(); 
-              
-              const clientTriggers = ['dile', 'dile a', 'dile al', 'pregúntale', 'preguntale', 'show', 'muéstrale', 'muestrale', 'say to', 'tell'];
-              let forceClientMode = clientTriggers.some(t => phrase.toLowerCase().trim().startsWith(t));
-              
-              processIntention(phrase, learningMode, forceClientMode);
+              setInterimTranscript(`Escuchando: "${phrase}"... (esperando)`);
+              analyTimeoutRef.current = setTimeout(() => {
+                  setInterimTranscript(`Procesando: "${phrase}"...`);
+                  isAnalyActiveRef.current = false; 
+                  recognitionRef.current?.stop(); 
+                  
+                  const clientTriggers = ['dile', 'dile a', 'dile al', 'pregúntale', 'preguntale', 'show', 'muéstrale', 'muestrale', 'say to', 'tell'];
+                  let forceClientMode = clientTriggers.some(t => phrase.toLowerCase().trim().startsWith(t));
+                  
+                  processIntention(phrase, learningMode, forceClientMode);
+              }, 2000);
             } else {
               setInterimTranscript('Anali: ¿Sí? Te escucho...');
             }
@@ -300,6 +306,11 @@ export default function ActionDashboard() {
   };
 
   const handleAnalyMic = () => {
+    if (!safeStorage.getItem('tutorial_analy_mic_seen')) {
+      setActiveTutorial('analy_mic');
+      return;
+    }
+
     if (isListeningAnaly) {
       isAnalyActiveRef.current = false;
       recognitionRef.current?.stop();
@@ -381,7 +392,8 @@ export default function ActionDashboard() {
           viewMode: targetMode 
         });
         
-        setCardView(forceClientMode ? 'client' : 'tutor');
+        // Siempre mostramos el cartelón cliente al empezar a no ser que sea navigation
+        setCardView('client');
         speak(result.corrected_en || result.softened); 
         setInterimTranscript(''); 
       }
@@ -446,6 +458,15 @@ export default function ActionDashboard() {
          message="Aquí guardo todo tu progreso. Puedes revisar las frases que has aprendido y ver cuánto has avanzado en tu camino al éxito."
          onClose={() => dismissTutorial('history')}
          emotion="happy"
+       />
+
+       <CoachMark 
+         id="analy_mic"
+         isVisible={activeTutorial === 'analy_mic'}
+         title="Micrófono Permanente Analí"
+         message="1. El botón queda ENCENDIDO siempre.\n2. Di 'Analí, [tu pregunta]' para conversarme.\n3. Di 'Analí, dile [mensaje]' para traducirle a tu cliente.\n¡Tómate tu tiempo, esperaré a que termines de hablar!"
+         onClose={() => { dismissTutorial('analy_mic'); handleAnalyMic(); }}
+         emotion="concentrated"
        />
 
        {/* Selector de Profesión para Master */}
@@ -532,7 +553,7 @@ export default function ActionDashboard() {
           </div>
 
           <AnimatePresence>
-            {softenedResult && (
+            {softenedResult && cardView === 'tutor' && (
               <motion.div 
                 initial={{ opacity: 0, y: 10 }}
                 animate={{ opacity: 1, y: 0 }}
@@ -550,79 +571,108 @@ export default function ActionDashboard() {
                   <AnaliAvatar emotion="success" size="md" className="shrink-0" />
                   <div className="flex-1">
                     <div className="flex items-center gap-2 mb-1">
-                      <Sparkles size={16} className={cardView === 'client' ? "text-indigo-500" : "text-teal-500"} />
-                      <span className={`text-xs font-bold tracking-wide ${cardView === 'client' ? "text-indigo-600" : "text-teal-600"}`}>
-                        {cardView === 'client' ? "Mostrando al Cliente:" : "Feedback Tutor:"}
+                      <Sparkles size={16} className="text-teal-500" />
+                      <span className="text-xs font-bold tracking-wide text-teal-600">
+                        Feedback Tutor:
                       </span>
                     </div>
                   </div>
                 </div>
 
-                {cardView === 'client' ? (
-                   <div className="space-y-6">
-                      <div className="bg-indigo-50/50 p-6 rounded-3xl border border-indigo-100 text-center">
-                         <h2 className="text-4xl font-black text-slate-800 leading-tight mb-2">
-                           {softenedResult.corrected_en || softenedResult.softened}
-                         </h2>
-                         <p className="text-sm font-medium text-slate-500">
-                           {softenedResult.translation_es || softenedResult.traduccion_literal}
-                         </p>
-                      </div>
-                      
-                      <button 
-                        onClick={() => setCardView('tutor')} 
-                        className="w-full flex items-center justify-center gap-2 py-4 bg-slate-800 text-white font-bold rounded-2xl active:scale-95 transition-all shadow-md"
-                      >
-                        <Sparkles size={16} /> Ver Análisis Pedagógico
-                      </button>
-                   </div>
-                ) : (
-                  <div className="space-y-5">
-                    <div className="bg-slate-50 p-4 rounded-2xl border border-slate-100">
-                      <div className="text-[10px] text-slate-400 uppercase font-black mb-1">Tú dijiste:</div>
-                      <p className="text-sm font-medium text-slate-700">"{softenedResult.original}"</p>
-                    </div>
+                <div className="space-y-5">
+                  <div className="bg-slate-50 p-4 rounded-2xl border border-slate-100">
+                    <div className="text-[10px] text-slate-400 uppercase font-black mb-1">Tú dijiste:</div>
+                    <p className="text-sm font-medium text-slate-700">"{softenedResult.original}"</p>
+                  </div>
 
-                    <div className="px-2">
-                      <div className="text-2xl font-black text-slate-800 leading-tight">
-                        {softenedResult.corrected_en || softenedResult.softened}
-                      </div>
-                      <div className="text-sm text-teal-500 font-medium italic mt-1">
-                        👄 {softenedResult.phonetic_tactic || softenedResult.pronunciation}
-                      </div>
+                  <div className="px-2">
+                    <div className="text-2xl font-black text-slate-800 leading-tight">
+                      {softenedResult.corrected_en || softenedResult.softened}
                     </div>
-
-                    <div className="px-2 border-t border-slate-100 pt-4">
-                       <div className="text-[10px] text-slate-400 uppercase font-black mb-1">
-                         Explicación / Feedback
-                       </div>
-                       <p 
-                         className="text-sm text-slate-600 leading-relaxed font-medium bg-teal-50/50 p-3 rounded-xl border border-teal-100/50 cursor-pointer hover:bg-teal-100/50 transition-colors"
-                         onClick={() => speak(softenedResult.learning_tip || softenedResult.significado, false, true)}
-                         title="Haz clic para escuchar con voz Premium"
-                       >
-                         {softenedResult.learning_tip || softenedResult.significado}
-                       </p>
-                       {softenedResult.mode_notes && (
-                         <p className="text-xs text-amber-500 mt-2 italic flex items-center gap-1"><Sparkles size={12}/> {softenedResult.mode_notes}</p>
-                       )}
-                    </div>
-
-                    <div className="flex items-center gap-3 pt-2">
-                      <button onClick={() => speak(softenedResult.corrected_en || softenedResult.softened)} className="flex-1 flex items-center justify-center gap-2 px-4 py-3 bg-teal-500 text-white rounded-xl text-xs font-bold shadow-md shadow-teal-500/20 active:scale-95 transition-all">
-                        <Volume2 size={16} /> Escuchar
-                      </button>
-                      <button onClick={() => { handleSaveToLibrary(); setSoftenedResult(null); }} className="flex-1 flex items-center justify-center gap-2 px-4 py-3 bg-white border border-slate-200 text-slate-600 rounded-xl text-xs font-bold hover:bg-slate-50 active:scale-95 transition-all">
-                        <Save size={16} /> Guardar
-                      </button>
+                    <div className="text-sm text-teal-500 font-medium italic mt-1">
+                      👄 {softenedResult.phonetic_tactic || softenedResult.pronunciation}
                     </div>
                   </div>
-                )}
+
+                  <div className="px-2 border-t border-slate-100 pt-4">
+                     <div className="text-[10px] text-slate-400 uppercase font-black mb-1">
+                       Explicación / Feedback
+                     </div>
+                     <p 
+                       className="text-sm text-slate-600 leading-relaxed font-medium bg-teal-50/50 p-3 rounded-xl border border-teal-100/50 cursor-pointer hover:bg-teal-100/50 transition-colors"
+                       onClick={() => speak(softenedResult.learning_tip || softenedResult.significado, false, true)}
+                       title="Haz clic para escuchar con voz Premium"
+                     >
+                       {softenedResult.learning_tip || softenedResult.significado}
+                     </p>
+                     {softenedResult.mode_notes && (
+                       <p className="text-xs text-amber-500 mt-2 italic flex items-center gap-1"><Sparkles size={12}/> {softenedResult.mode_notes}</p>
+                     )}
+                  </div>
+
+                  <div className="flex items-center gap-3 pt-2">
+                    <button onClick={() => speak(softenedResult.corrected_en || softenedResult.softened)} className="flex-1 flex items-center justify-center gap-2 px-4 py-3 bg-teal-500 text-white rounded-xl text-xs font-bold shadow-md shadow-teal-500/20 active:scale-95 transition-all">
+                      <Volume2 size={16} /> Escuchar
+                    </button>
+                    <button onClick={() => { handleSaveToLibrary(); setSoftenedResult(null); }} className="flex-1 flex items-center justify-center gap-2 px-4 py-3 bg-white border border-slate-200 text-slate-600 rounded-xl text-xs font-bold hover:bg-slate-50 active:scale-95 transition-all">
+                      <Save size={16} /> Guardar
+                    </button>
+                  </div>
+                </div>
               </motion.div>
             )}
           </AnimatePresence>
         </div>
       )}
+
+      <AnimatePresence>
+        {softenedResult && cardView === 'client' && (
+          <motion.div 
+            initial={{ opacity: 0, scale: 0.95 }}
+            animate={{ opacity: 1, scale: 1 }}
+            exit={{ opacity: 0, scale: 0.95 }}
+            className="fixed inset-0 z-[200] flex items-center justify-center p-6 bg-slate-900/80 backdrop-blur-md"
+          >
+             <div className="bg-white rounded-[2.5rem] w-full max-w-lg p-10 relative flex flex-col items-center text-center shadow-2xl overflow-hidden">
+                <button 
+                  onClick={() => setSoftenedResult(null)} 
+                  className="absolute top-6 right-6 w-10 h-10 flex items-center justify-center bg-slate-100 text-slate-400 hover:text-slate-700 hover:bg-slate-200 rounded-full transition-all"
+                >
+                  <X size={20} />
+                </button>
+               
+                <div className="w-24 h-24 bg-indigo-50 text-indigo-500 rounded-full flex items-center justify-center mb-6 shadow-xl shadow-indigo-500/20">
+                   <Volume2 size={48} />
+                </div>
+                
+                <h2 className="text-5xl font-black text-slate-800 leading-tight mb-4 tracking-tight">
+                  {softenedResult.corrected_en || softenedResult.softened}
+                </h2>
+                <p className="text-lg font-bold text-slate-400 mb-8 max-w-[80%] mx-auto">
+                  {softenedResult.translation_es || softenedResult.traduccion_literal}
+                </p>
+                
+                <div className="w-full flex items-center gap-3">
+                   <button 
+                     onClick={() => speak(softenedResult.corrected_en || softenedResult.softened)} 
+                     className="flex-1 flex items-center justify-center gap-2 py-5 bg-indigo-500 text-white text-lg font-black rounded-2xl active:scale-95 transition-all shadow-lg shadow-indigo-500/30"
+                   >
+                     <Volume2 size={24} /> Hablar
+                   </button>
+                   <button 
+                     onClick={() => {
+                        setCardView('tutor');
+                        setLearningMode('normal'); // Switch mode so it's visible if was somewhere else
+                     }} 
+                     className="flex-1 flex items-center justify-center gap-2 py-5 bg-slate-800 text-white text-lg font-black rounded-2xl active:scale-95 transition-all shadow-lg shadow-slate-800/30"
+                   >
+                     <Sparkles size={24} /> Análisis Pedagógico
+                   </button>
+                </div>
+             </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
 
       {learningMode === 'roleplay' && (
         <RoleplayMode userProfile={userProfile} trustMode={trustMode} />
@@ -763,7 +813,7 @@ const ScriptCard: React.FC<ScriptCardProps> = ({ script, onSpeak }) => {
                   <ul className="text-xs text-slate-600 space-y-1 font-medium pl-2">
                     {(script.learning_tips || []).map((tip, idx) => (
                       <li 
-                        key={idx} 
+                        key={`tip-${idx}`} 
                         className="cursor-pointer hover:text-teal-600 transition-colors flex items-center gap-1.5"
                         onClick={(e) => { e.stopPropagation(); onSpeak(tip, false, true); }}
                         title="Escuchar con voz Premium"

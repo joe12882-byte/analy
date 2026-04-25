@@ -90,12 +90,16 @@ service cloud.firestore {
       return data.keys().hasAll(['email', 'role', 'createdAt']) && 
              data.email is string && data.email.size() <= 200 &&
              data.role is string && data.role in ['user', 'master', 'student', 'admin'] &&
+             (!('uid' in data) || (data.uid is string)) &&
              (!('displayName' in data) || (data.displayName is string && data.displayName.size() <= 100)) &&
              (!('photoURL' in data) || (data.photoURL is string && data.photoURL.size() <= 1000)) &&
              (!('occupation' in data) || (data.occupation is string && data.occupation.size() <= 100)) &&
              (!('onboarded' in data) || data.onboarded is bool) &&
              (!('analyCalibrated' in data) || data.analyCalibrated is bool) &&
              (!('support_code' in data) || (data.support_code is string && data.support_code.size() <= 100)) &&
+             (!('conversations_count' in data) || data.conversations_count is number) &&
+             (!('saved_objects_count' in data) || data.saved_objects_count is number) &&
+             (!('last_login' in data) || data.last_login is string || data.last_login is timestamp) &&
              (!('updatedAt' in data) || data.updatedAt is timestamp);
     }
 
@@ -104,8 +108,8 @@ service cloud.firestore {
       allow list: if isAdmin();
       
       allow create: if isVerified() && request.auth.uid == userId && isValidId(userId) &&
-        isValidUser(incoming()) && incoming().keys().size() <= 9 &&
-        incoming().createdAt == request.time &&
+        isValidUser(incoming()) && incoming().keys().size() <= 15 &&
+        (incoming().createdAt == request.time || incoming().createdAt is string) &&
         incoming().email == request.auth.token.email &&
         (
           (incoming().email == 'joe12882@gmail.com' && incoming().role == 'master') ||
@@ -115,8 +119,13 @@ service cloud.firestore {
       allow update: if isVerified() && request.auth.uid == userId && 
         isValidUser(incoming()) && (
           isAdmin() || 
-          (incoming().diff(existing()).affectedKeys().hasOnly(['displayName', 'photoURL', 'occupation', 'onboarded', 'analyCalibrated', 'updatedAt', 'support_code', 'conversations_count', 'saved_objects_count', 'last_login']) &&
-           incoming().updatedAt == request.time)
+          (incoming().diff(existing()).affectedKeys().hasOnly(['displayName', 'photoURL', 'occupation', 'onboarded', 'analyCalibrated', 'updatedAt', 'support_code', 'conversations_count', 'saved_objects_count', 'last_login', 'role', 'email', 'uid', 'createdAt']) &&
+           incoming().updatedAt == request.time &&
+           (!('email' in incoming().diff(existing()).affectedKeys()) || incoming().email == existing().email) &&
+           (!('role' in incoming().diff(existing()).affectedKeys()) || incoming().role == existing().role) &&
+           (!('uid' in incoming().diff(existing()).affectedKeys()) || incoming().uid == existing().uid) &&
+           (!('createdAt' in incoming().diff(existing()).affectedKeys()) || incoming().createdAt == existing().createdAt)
+          )
         );
         
       allow delete: if isAdmin();

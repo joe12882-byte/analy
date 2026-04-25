@@ -360,7 +360,7 @@ export default function AdminCurador() {
                       <h4 className="text-[10px] font-black uppercase text-emerald-500 tracking-widest mb-2">Nuevos Retos (Modo Vuelo)</h4>
                       <ul className="space-y-2">
                         {videoMethodology.roleplay_scenarios.map((scen: any, idx: number) => (
-                           <li key={idx} className="bg-white p-3 rounded-xl border border-slate-100">
+                           <li key={`scen-${idx}`} className="bg-white p-3 rounded-xl border border-slate-100">
                              <div className="flex items-center justify-between font-bold text-slate-700 text-sm mb-1">
                                <span>{scen.client_role}</span>
                                <span className="text-[9px] bg-slate-100 text-slate-500 px-2 py-0.5 rounded-full uppercase tracking-wider">{scen.difficulty}</span>
@@ -398,7 +398,7 @@ export default function AdminCurador() {
 
               <div className="grid gap-4 md:grid-cols-2">
                 {(results || []).map((item: any, i: number) => (
-                  <div key={i} className="bg-white rounded-3xl p-6 shadow-sm border border-slate-100 flex flex-col justify-between">
+                  <div key={`result-${i}`} className="bg-white rounded-3xl p-6 shadow-sm border border-slate-100 flex flex-col justify-between">
                     <div className="flex items-center justify-between mb-4">
                       <div className="px-3 py-1 bg-amber-100 text-amber-700 rounded-full text-xs font-bold capitalize">
                         {item.category || item.grammar_tag || 'Intel'}
@@ -432,7 +432,7 @@ export default function AdminCurador() {
                       {item.grammar_tags && item.grammar_tags.length > 0 && (
                         <div className="flex flex-wrap gap-2 mt-2">
                            {item.grammar_tags.map((tag: string, idx: number) => (
-                             <span key={idx} className="bg-slate-100 text-slate-500 text-[10px] px-2 py-1 rounded-full font-bold uppercase">{tag}</span>
+                             <span key={`tag-${idx}-${tag}`} className="bg-slate-100 text-slate-500 text-[10px] px-2 py-1 rounded-full font-bold uppercase">{tag}</span>
                            ))}
                         </div>
                       )}

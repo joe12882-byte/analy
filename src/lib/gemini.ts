@@ -60,7 +60,7 @@ MODE: ${trustMode === 'formal' ? "Polite service English." : "Social/Slang allow
 CONTEXT: ${dbContext}`;
 
     const response = await withTimeout(ai.models.generateContent({
-      model: "gemini-1.5-flash",
+      model: "gemini-2.5-flash",
       contents: [{ role: 'user', parts: [{ text: phrase }] }],
       config: {
         systemInstruction: system,
@@ -143,7 +143,7 @@ Rules:
     const payload = JSON.stringify({ history: history.slice(-8), user: userText });
 
     const response = await withTimeout(ai.models.generateContent({
-      model: "gemini-1.5-flash",
+      model: "gemini-2.5-flash",
       contents: [{ role: 'user', parts: [{ text: `Act according to your role based on this input: ${payload}` }] }],
       config: {
         systemInstruction: system,
@@ -180,7 +180,7 @@ export async function gradeRoleplay(profession: string, scenarioRole: string, us
 IMPORTANT INSTRUCTION: ALL your feedback (strengths, improvements, tips, anali_reminder) MUST be written strictly in SPANISH to ensure the student understands the pedagogical feedback perfectly.`;
     
     const response = await withTimeout(ai.models.generateContent({
-      model: "gemini-1.5-flash",
+      model: "gemini-2.5-flash",
       contents: [{ role: 'user', parts: [{ text: `Grade these turns: ${JSON.stringify(userTurns)}` }] }],
       config: {
         systemInstruction: system,
@@ -245,7 +245,7 @@ export async function gradeShadow(targetEn: string, userTranscript: string) {
 IMPORTANT INSTRUCTION: ALL your feedback (tips, encouragement, anali_reminder) MUST be written strictly in SPANISH so the student clearly understands what to improve.`;
     
     const response = await withTimeout(ai.models.generateContent({
-      model: "gemini-1.5-flash",
+      model: "gemini-2.5-flash",
       contents: [{ role: 'user', parts: [{ text: `Format JSON strictly. Target: "${targetEn}". Transcript heard: "${userTranscript}"` }] }],
       config: {
         systemInstruction: system,
@@ -302,7 +302,7 @@ export async function analyzeToolImage(base64Image: string) {
 Return JSON with objects array. bbox: {x,y,w,h} normalized 0-1.`;
 
     const response = await withTimeout(ai.models.generateContent({
-      model: "gemini-1.5-flash",
+      model: "gemini-2.5-flash",
       contents: [{ role: 'user', parts: [
         { text: `Detect objects.` }, 
         { inlineData: { data: base64Image.split('base64,')[1] || base64Image, mimeType: "image/jpeg" } }
@@ -352,7 +352,7 @@ IMPORTANT: Return strictly JSON. bbox: {x,y,w,h} normalized 0-1.
 'translation_es' must be natural Spanish. 'phonetic_tactic' Spanish-ear phonetic.`;
 
     const response = await withTimeout(ai.models.generateContent({
-      model: "gemini-1.5-flash",
+      model: "gemini-2.5-flash",
       contents: [{ role: 'user', parts: [
         { text: `Scan and translate text.` }, 
         { inlineData: { data: base64Image.split('base64,')[1] || base64Image, mimeType: "image/jpeg" } }
@@ -407,7 +407,7 @@ Rules:
 - Infer profession from content; use "general" if unclear.`;
 
     const response = await withTimeout(ai.models.generateContent({
-      model: "gemini-1.5-flash",
+      model: "gemini-2.5-flash",
       contents: [{ role: 'user', parts: [{ text: `Extract units.` }] }],
       config: {
         systemInstruction: system,
@@ -471,7 +471,7 @@ All pedagogical feedback, tips, and descriptions MUST be exclusively in SPANISH.
     if (transcription) textPrompt += ` \nTranscription/Context provided: "${transcription}"`;
 
     const response = await withTimeout(ai.models.generateContent({
-      model: "gemini-1.5-flash",
+      model: "gemini-2.5-flash",
       contents: [{
         role: 'user',
         parts: [

@@ -212,7 +212,7 @@ export default function RoleplayMode({ userProfile, trustMode }: RoleplayProps) 
            {/* Chat View */}
            <div className="flex-1 overflow-y-auto space-y-4 pb-4 custom-scrollbar max-h-[45vh]">
                {messages.map((m, i) => (
-                <div key={i} className={`flex gap-3 ${m.role === 'user' ? 'flex-row-reverse' : ''}`}>
+                <div key={m.id || `msg-${i}`} className={`flex gap-3 ${m.role === 'user' ? 'flex-row-reverse' : ''}`}>
                    {m.role === 'anali' ? (
                      <AnaliAvatar emotion={m.emotion === 'angry' ? 'surprised' : 'neutral'} size="sm" className="shrink-0 mt-2" />
                     ) : (

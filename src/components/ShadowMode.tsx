@@ -111,7 +111,7 @@ export default function ShadowMode({ userProfile, learningUnits }: ShadowProps) 
           let color = "text-slate-400"; // default neutral
           if (matched.includes(clean)) color = "text-teal-500 bg-teal-50 px-2 rounded-lg";
           else if (missed.includes(clean)) color = "text-rose-500 bg-rose-50 px-2 rounded-lg";
-          return <span key={i} className={color}>{word}</span>;
+          return <span key={`word-${i}-${clean}`} className={color}>{word}</span>;
         })}
       </div>
     );
@@ -192,7 +192,7 @@ export default function ShadowMode({ userProfile, learningUnits }: ShadowProps) 
                      <div className="bg-amber-50 rounded-2xl p-4 border border-amber-100">
                        <h4 className="text-[10px] font-black uppercase text-amber-600 tracking-widest mb-2 flex items-center gap-1"><Sparkles size={12}/> Feedback Analí</h4>
                        <ul className="text-xs text-slate-700 space-y-2 list-disc pl-4 font-medium">
-                          {(gradeResult.tips || []).map((t: string, i: number) => <li key={i}>{t}</li>)}
+                          {(gradeResult.tips || []).map((t: string, i: number) => <li key={`tip-${i}`}>{t}</li>)}
                        </ul>
                      </div>
                    )}
