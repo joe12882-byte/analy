@@ -1,6 +1,6 @@
 import React from 'react';
 import { motion, AnimatePresence } from 'motion/react';
-import collageImg from '../assets/images/analy_master.png';
+import collageImg from '../assets/images/analy_master_small.webp';
 
 export type AnaliEmotion = 'neutral' | 'thinking' | 'success' | 'happy' | 'learning' | 'surprised' | 'concentrated' | 'snappy';
 

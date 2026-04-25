@@ -34,7 +34,7 @@ export default function UsageMonitor() {
     {
       label: 'Limpieza Assets',
       value: '100%',
-      sublabel: 'Solo analy_master.png',
+      sublabel: 'Solo analy_master_small.webp',
       icon: <ShieldCheck size={16} />,
       color: 'bg-teal-500'
     },
